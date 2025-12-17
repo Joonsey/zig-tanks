@@ -3,8 +3,77 @@ const rl = @import("raylib");
 const window_height = 720;
 const window_width = 1080;
 
+var discreete_render_texture: rl.RenderTexture = undefined;
+var normal_render_texture: rl.RenderTexture = undefined;
+var height_render_texture: rl.RenderTexture = undefined;
+
+var normal_shader: rl.Shader = undefined;
+var height_shader: rl.Shader = undefined;
+
+pub const SSprite = struct {
+    texture: rl.Texture,
+    normals: rl.Texture,
+    rotation: f32 = 0,
+    position: rl.Vector2 = .{ .x = 0, .y = 0 },
+
+    const Self = @This();
+    pub fn init(path: [:0]const u8, allocator: std.mem.Allocator) !Self {
+        const texture = try rl.loadTexture(path);
+        const density = try build_density_volume(texture, allocator);
+        defer allocator.free(density);
+
+        const w: usize = @intCast(texture.width);
+        const d: usize = @intCast(@divTrunc(texture.height, texture.width));
+        const gradients = try build_gradient_volume(density, w, d, allocator);
+        defer allocator.free(gradients);
+
+        const atlas = try build_gradient_atlas(gradients, w, d, allocator);
+        defer allocator.free(atlas);
+
+        const normals = try build_normal_atlas(atlas, w, d);
+
+        return .{ .normals = normals, .texture = texture };
+    }
+
+    pub fn draw(self: Self) void {
+        discreete_render_texture.begin();
+        stack_draw(self.texture, self.rotation, self.position);
+        discreete_render_texture.end();
+
+        normal_render_texture.begin();
+        normal_shader.activate();
+        rl.setShaderValue(normal_shader, rl.getShaderLocation(normal_shader, "rotation"), &self.rotation, .float);
+        stack_draw(self.normals, self.rotation, self.position);
+        normal_shader.deactivate();
+        normal_render_texture.end();
+
+        // eats up performance, disabling for now
+        //height_render_texture.begin();
+        //// drawing manually because we need to embedd shader information
+        //const width = self.texture.width;
+        //const rows: usize = @intCast(@divTrunc(self.texture.height, width));
+        //const f_width: f32 = @floatFromInt(width);
+        //for (0..rows) |i| {
+        //    const f_inverse_i: f32 = @floatFromInt(rows - (i + 1));
+        //    const f_i: f32 = @floatFromInt(i);
+        //    // need to activate and deactivate to disabling batching
+        //    // causing the 'height' to be shadowed and equal to the latest value
+        //    height_shader.activate();
+        //    rl.setShaderValue(height_shader, rl.getShaderLocation(height_shader, "height"), &(f_i), .float);
+        //    self.texture.drawPro(
+        //        .{ .x = 0, .y = f_inverse_i * f_width, .width = f_width, .height = f_width },
+        //        .{ .x = self.position.x, .y = self.position.y - f_i, .width = f_width, .height = f_width },
+        //        .{ .x = f_width / 2, .y = f_width / 2 },
+        //        std.math.radiansToDegrees(self.rotation),
+        //        .white,
+        //    );
+        //    height_shader.deactivate();
+        //}
+        //height_render_texture.end();
+    }
+};
+
 fn smoothstep(edge0: f32, edge1: f32, x: f32) f32 {
-    // Scale, and clamp x to 0..1 range
     const nx = std.math.clamp((x - edge0) / (edge1 - edge0), 0, 1);
 
     return nx * nx * (3.0 - 2.0 * nx);
@@ -94,11 +163,7 @@ fn build_gradient_volume(
     for (0..d) |z| {
         for (0..w) |y| {
             for (0..w) |x| {
-                const idx =
-                    z * w * w +
-                    y * w +
-                    x;
-
+                const idx = z * w * w + y * w + x;
                 const g = compute_gradient(density, w, d, @intCast(x), @intCast(y), @intCast(z));
                 const wgt = smoothstep(0.05, 0.25, density[idx]);
 
@@ -183,46 +248,68 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    const discreete_render_texture = try rl.loadRenderTexture(window_width / 4, window_height / 4);
-    const normal_render_texture = try rl.loadRenderTexture(window_width / 4, window_height / 4);
+    defer switch (gpa.deinit()) {
+        .leak => std.log.err("memory leaks detected!", .{}),
+        .ok => std.log.info("no memory leaks detected :)", .{}),
+    };
 
-    const texture = try rl.loadTexture("fence-0.png");
-    const density = try build_density_volume(texture, allocator);
-    defer allocator.free(density);
+    // debug rendering mode
+    // could be typed as an enum but can't be bothered right now
+    // 0 None
+    // 1 Normal
+    // 2 Height
+    // 3 Discreet
+    var debug_mode: i32 = 0;
 
-    const w: usize = @intCast(texture.width);
-    const d: usize = @intCast(@divTrunc(texture.height, texture.width));
-    const gradients = try build_gradient_volume(density, w, d, allocator);
-    defer allocator.free(gradients);
-
-    const atlas = try build_gradient_atlas(gradients, w, d, allocator);
-    const normals = try build_normal_atlas(atlas, w, d);
+    discreete_render_texture = try rl.loadRenderTexture(window_width / 4, window_height / 4);
+    normal_render_texture = try rl.loadRenderTexture(window_width / 4, window_height / 4);
+    height_render_texture = try rl.loadRenderTexture(window_width / 4, window_height / 4);
 
     const shader = try rl.loadShader(null, "shader.glsl");
-    const normal_shader = try rl.loadShader(null, "normal.glsl");
+    normal_shader = try rl.loadShader(null, "normal.glsl");
+    height_shader = try rl.loadShader(null, "height.glsl");
+
+    var sprite = try SSprite.init("car_base.png", allocator);
+
+    const relative_pos: rl.Vector2 = .{ .x = window_width / 8, .y = window_height / 8 };
+    sprite.position = relative_pos;
+
+    var light_height: f32 = 15.0 / 255.0;
 
     while (!rl.windowShouldClose()) {
-        const rotation: f32 = @floatCast(rl.getTime());
-        // const rotation: f32 = 0;
-        const relative_pos: rl.Vector2 = .{ .x = window_width / 8, .y = window_height / 8 };
-        discreete_render_texture.begin();
-        rl.clearBackground(.blank);
-        stack_draw(texture, rotation, relative_pos);
-        discreete_render_texture.end();
+        sprite.rotation = @floatCast(rl.getTime());
+        sprite.position = relative_pos;
 
-        normal_render_texture.begin();
-        rl.clearBackground(.blank);
-        normal_shader.activate();
-        rl.setShaderValue(normal_shader, rl.getShaderLocation(normal_shader, "rotation"), &rotation, .float);
-        stack_draw(normals, rotation, relative_pos);
-        normal_shader.deactivate();
-        normal_render_texture.end();
+        for (0..10) |x| {
+            sprite.position.x = @floatFromInt(x * 40);
+            sprite.draw();
+        }
 
+        // debug buttons
+        if (rl.isMouseButtonPressed(.left)) {
+            light_height += (1.0 / 255.0);
+            std.log.debug("light_height: {d:.0}", .{light_height * 255.0});
+        }
+        if (rl.isMouseButtonPressed(.right)) {
+            light_height -= (1.0 / 255.0);
+            std.log.debug("light_height: {d:.0}", .{light_height * 255.0});
+        }
+
+        if (rl.isKeyPressed(.n)) {
+            debug_mode = @mod(1 + debug_mode, 4); // 4 is max debug modes
+        }
+
+        const mouse = rl.getMousePosition().divide(.{ .x = window_width, .y = window_height });
+
+        // drawing final shader pass
         rl.beginDrawing();
         rl.clearBackground(.blank);
         shader.activate();
         rl.setShaderValueTexture(shader, rl.getShaderLocation(shader, "normal"), normal_render_texture.texture);
-        rl.setShaderValueV(shader, rl.getShaderLocation(shader, "mouse"), &rl.getMousePosition().divide(.{ .x = window_width, .y = window_height }), .vec2, 1);
+        rl.setShaderValueTexture(shader, rl.getShaderLocation(shader, "height"), height_render_texture.texture);
+        rl.setShaderValueV(shader, rl.getShaderLocation(shader, "mouse"), &mouse, .vec2, 1);
+        rl.setShaderValue(shader, rl.getShaderLocation(shader, "debug_mode"), &debug_mode, .int);
+        rl.setShaderValue(shader, rl.getShaderLocation(shader, "light_height"), &light_height, .float);
         rl.drawTexturePro(discreete_render_texture.texture, .{
             .x = 0,
             .y = 0,
@@ -235,9 +322,28 @@ pub fn main() !void {
             .height = @floatFromInt(window_height),
         }, rl.Vector2.zero(), 0, .white);
         shader.deactivate();
+
+        // drawing debug information
         rl.drawFPS(0, 0);
-        normals.drawEx(.zero(), 0, 3, .white);
-        texture.drawEx(.init(100, 0), 0, 3, .white);
+        switch (debug_mode) {
+            1 => rl.drawText("normals", 0, 20, 50, .white),
+            2 => rl.drawText("heights", 0, 20, 50, .white),
+            3 => rl.drawText("discreet", 0, 20, 50, .white),
+            else => {},
+        }
         rl.endDrawing();
+
+        // cleaning up render texture
+        discreete_render_texture.begin();
+        rl.clearBackground(.blank);
+        discreete_render_texture.end();
+
+        normal_render_texture.begin();
+        rl.clearBackground(.blank);
+        normal_render_texture.end();
+
+        height_render_texture.begin();
+        rl.clearBackground(.blank);
+        height_render_texture.end();
     }
 }
