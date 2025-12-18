@@ -31,10 +31,14 @@ void main() {
 
 	for (int i = 0; i < light_count; i++) {
 		vec2 lp = lights[i].position;
-		lp.y = 1.0 - lp.y;
 
-		vec3 to_light = vec3(lp, lights[i].height) - vec3(uv, texture(height, uv).r);
-	    vec3 light_dir = normalize(to_light);
+		// this seems like it should work but it randomly does???
+		// normal we would invert the y position here also but the x seemed a to be flipped
+		// so i changed the direction formula and this is magically just better
+
+		lp.y = 1 - lp.y;
+		vec3 to_light =  vec3(uv, texture(height, uv)) - vec3(lp, lights[i].height);
+	    vec3 light_dir = normalize(vec3(to_light.x, -to_light.y, -to_light.z));
 
 		float ndotl = max(dot(n, light_dir), 0.0);
 
