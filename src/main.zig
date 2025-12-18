@@ -473,6 +473,8 @@ const Lights = struct {
     arr: std.ArrayList(Light),
     allocator: std.mem.Allocator,
 
+    debug_i: u32 = 0,
+
     const Self = @This();
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{ .allocator = allocator, .arr = .{} };
@@ -486,8 +488,12 @@ const Lights = struct {
         if (self.arr.items.len >= 25) @panic("TOO MANY LIGHTS");
     }
 
-    pub fn update(self: Self, camera: Camera, shader: rl.Shader) void {
-        for (0.., self.arr.items) |i, light| {
+    pub fn update(self: *Self, camera: Camera, shader: rl.Shader) void {
+        var i: u32 = 0; // needs to be u32 because it's passed to the shader.
+        // even though we can reason this could be a usize or u8
+        for (self.arr.items) |light| {
+            if (camera.is_out_of_bounds(light.position)) continue;
+
             rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].position", .{i})), &camera.get_relative_position(light.position).divide(.init(render_width, render_height)), .vec2);
 
             const height: f32 = @as(f32, @floatFromInt(light.height)) / 255.0;
@@ -500,8 +506,16 @@ const Lights = struct {
             };
             color = color.scale(@as(f32, @floatFromInt(light.color.a)) / 255.0);
             rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].color", .{i})), &color, .vec3);
+
+            i += 1;
         }
-        rl.setShaderValue(shader, rl.getShaderLocation(shader, "light_count"), &self.arr.items.len, .int);
+        rl.setShaderValue(shader, rl.getShaderLocation(shader, "light_count"), &i, .int);
+        self.debug_i = i;
+    }
+
+    pub fn debug(self: Self) void {
+        std.log.debug("LIGHTS DEBUG START", .{});
+        std.log.debug("number of total lights: {d}, lights being rendered in scene: {d}", .{ self.arr.items.len, self.debug_i });
     }
 
     pub fn draw_debug(self: Self, camera: Camera) void {
@@ -575,11 +589,12 @@ pub fn main() !void {
 
     var lights = Lights.init(allocator);
     defer lights.free();
+    defer lights.debug();
     lights.add(.{ .color = .white, .height = 1, .position = .init(0, 0) });
     lights.add(.{ .color = .red, .height = 0, .position = .init(0, -100) });
     // lights.add(.{ .color = .green, .height = 45, .position = relative_pos.add(.init(-20, 0)) });
     // lights.add(.{ .color = .orange, .height = 45, .position = relative_pos.add(.init(-20, 100)) });
-    // lights.add(.{ .color = .red, .height = 15, .position = relative_pos.add(.init(-200, 300)) });
+    lights.add(.{ .color = .green, .height = 15, .position = relative_pos.add(.init(200, 300)) });
 
     while (!rl.windowShouldClose()) {
         const rotation: f32 = @floatCast(rl.getTime());
