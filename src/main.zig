@@ -78,20 +78,24 @@ pub const Transform = struct {
     rotation: f32 = 0,
 };
 
+// this is much more performant than the previous implement
+// leaving it currently at 150fps @ 1000 entities
+// previous implementation had 60fps @ 1000 entities
 fn draw_system_function(camera: Camera, query: []RenderRow) void {
-    _ = camera;
-
     discreete_render_texture.begin();
-    for (query) |q| stack_draw(q.sprite.texture, q.transform.rotation, q.transform.position);
+    for (query) |q| stack_draw(q.sprite.texture, q.transform.rotation - camera.rotation, camera.get_relative_position(q.transform.position));
     discreete_render_texture.end();
 
     normal_render_texture.begin();
     for (query) |q| {
-        const t = q.transform;
+        const position = camera.get_relative_position(q.transform.position);
+        const rotation = q.transform.rotation - camera.rotation;
         const s = q.sprite;
         normal_shader.activate();
-        rl.setShaderValue(normal_shader, rl.getShaderLocation(normal_shader, "rotation"), &t.rotation, .float);
-        stack_draw(s.normals, t.rotation, t.position);
+        // passing in absolute 'rotation'
+        // I think this is correct, it's world space rotation, it looks right!
+        rl.setShaderValue(normal_shader, rl.getShaderLocation(normal_shader, "rotation"), &rotation, .float);
+        stack_draw(s.normals, rotation, position);
         normal_shader.deactivate();
     }
     normal_render_texture.end();
@@ -240,13 +244,13 @@ const ECS = struct {
         self.ssprite.remove(e);
     }
 
-    fn query_render_rows(transforms: *SparseSet(Transform), sprites: *SparseSet(*SSprite), out: *std.ArrayList(RenderRow)) void {
+    fn query_render_rows(camera: Camera, transforms: *SparseSet(Transform), sprites: *SparseSet(*SSprite), out: *std.ArrayList(RenderRow)) void {
         out.clearRetainingCapacity();
 
         for (sprites.dense_entities.items, 0..) |e, i| {
             if (transforms.get(e)) |t| {
                 // TODO guarantee capacity
-                out.appendAssumeCapacity(.{ .entity = e, .transform = t, .sprite = sprites.dense.items[i] });
+                if (!camera.is_out_of_bounds(t.position)) out.appendAssumeCapacity(.{ .entity = e, .transform = t, .sprite = sprites.dense.items[i] });
             }
         }
     }
@@ -254,8 +258,9 @@ const ECS = struct {
     pub fn render(self: *Self, camera: Camera) void {
         // TODO implement the 'S' part of the ECS
         // would be sick if we could reflect on the parameters and add them dynamically
-        query_render_rows(&self.transforms, &self.ssprite, &self.render_rows);
+        query_render_rows(camera, &self.transforms, &self.ssprite, &self.render_rows);
 
+        std.mem.sort(RenderRow, self.render_rows.items, camera, order_by_camera_position);
         draw_system_function(camera, self.render_rows.items);
     }
 
@@ -276,6 +281,7 @@ const ECS = struct {
                 if (self.ssprite.get(e)) |s| s.* else null,
             });
         }
+        std.log.debug("number of renderables last frame: {d}", .{self.render_rows.items.len});
     }
 };
 
@@ -447,6 +453,16 @@ fn build_normal_atlas(atlas: []u8, slice_size: usize, slice_count: usize) !rl.Te
     return gradient_texture;
 }
 
+fn order_by_camera_position(camera: Camera, lhs: RenderRow, rhs: RenderRow) bool {
+    const abs_position = lhs.transform.position;
+    const lhs_relative_position = camera.get_relative_position(abs_position);
+
+    const rhs_abs_position = rhs.transform.position;
+    const rhs_relative_position = camera.get_relative_position(rhs_abs_position);
+
+    return rhs_relative_position.y > lhs_relative_position.y;
+}
+
 const Light = struct {
     position: rl.Vector2,
     height: u8,
@@ -470,9 +486,9 @@ const Lights = struct {
         if (self.arr.items.len >= 25) @panic("TOO MANY LIGHTS");
     }
 
-    pub fn update(self: Self, shader: rl.Shader) void {
+    pub fn update(self: Self, camera: Camera, shader: rl.Shader) void {
         for (0.., self.arr.items) |i, light| {
-            rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].position", .{i})), &light.position.divide(.init(render_width, render_height)), .vec2);
+            rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].position", .{i})), &camera.get_relative_position(light.position).divide(.init(render_width, render_height)), .vec2);
 
             const height: f32 = @as(f32, @floatFromInt(light.height)) / 255.0;
             rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].height", .{i})), &height, .float);
@@ -488,13 +504,22 @@ const Lights = struct {
         rl.setShaderValue(shader, rl.getShaderLocation(shader, "light_count"), &self.arr.items.len, .int);
     }
 
+    pub fn draw_debug(self: Self, camera: Camera) void {
+        discreete_render_texture.begin();
+        for (self.arr.items) |light| {
+            std.log.debug("{}, {}", .{ camera.get_relative_position(light.position), light.position });
+            rl.drawCircleV(camera.get_relative_position(light.position), 8, light.color);
+        }
+        discreete_render_texture.end();
+    }
+
     pub fn free(self: *Self) void {
         self.arr.clearAndFree(self.allocator);
     }
 };
 
 pub fn main() !void {
-    rl.setTraceLogLevel(.err);
+    rl.setTraceLogLevel(.warning);
     rl.initWindow(window_width, window_height, "test");
     defer rl.closeWindow();
 
@@ -527,7 +552,7 @@ pub fn main() !void {
 
     const relative_pos: rl.Vector2 = .{ .x = render_width / 2, .y = render_height / 2 };
 
-    const camera: Camera = .init();
+    var camera: Camera = .init();
 
     var ecs = ECS.init(allocator);
     defer ecs.free();
@@ -536,36 +561,56 @@ pub fn main() !void {
     _ = ecs.transforms.add(item, .{ .position = relative_pos });
     _ = ecs.ssprite.add(item, &sprite);
 
-    for (0..10) |x| {
-        const item2 = ecs.create();
-        _ = ecs.transforms.add(item2, .{ .position = relative_pos.subtract(.init(80, 0)).add(.init(@floatFromInt(x * 40), 0)) });
-        _ = ecs.ssprite.add(item2, &sprite2);
+    // const item2 = ecs.create();
+    // _ = ecs.transforms.add(item2, .{ .position = .zero() });
+    // _ = ecs.ssprite.add(item2, &sprite);
+
+    for (0..2) |x| {
+        const xi = ecs.create();
+        _ = ecs.transforms.add(xi, .{ .position = relative_pos.subtract(.init(80, 0)).add(.init(@floatFromInt(x * 40), 0)) });
+        _ = ecs.ssprite.add(xi, &sprite2);
     }
 
     ecs.destroy(2);
 
     var lights = Lights.init(allocator);
     defer lights.free();
-    lights.add(.{ .color = .white, .height = 15, .position = relative_pos.add(.init(0, 30)) });
-    lights.add(.{ .color = .green, .height = 45, .position = relative_pos.add(.init(-20, 0)) });
-    lights.add(.{ .color = .orange, .height = 45, .position = relative_pos.add(.init(-20, 100)) });
-    lights.add(.{ .color = .red, .height = 15, .position = relative_pos.add(.init(-200, 300)) });
+    lights.add(.{ .color = .white, .height = 1, .position = .init(0, 0) });
+    lights.add(.{ .color = .red, .height = 0, .position = .init(0, -100) });
+    // lights.add(.{ .color = .green, .height = 45, .position = relative_pos.add(.init(-20, 0)) });
+    // lights.add(.{ .color = .orange, .height = 45, .position = relative_pos.add(.init(-20, 100)) });
+    // lights.add(.{ .color = .red, .height = 15, .position = relative_pos.add(.init(-200, 300)) });
 
     while (!rl.windowShouldClose()) {
         const rotation: f32 = @floatCast(rl.getTime());
-        if (ecs.transforms.get(item)) |t| t.rotation = rotation;
+        _ = rotation;
+        if (ecs.transforms.get(item)) |t| {
+            // t.rotation = rotation
+            lights.arr.items[0].position = camera.get_absolute_position(rl.getMousePosition().divide(.init(4, 4)));
+            t.position = camera.get_absolute_position(rl.getMousePosition().divide(.init(4, 4)));
+        }
 
         ecs.render(camera);
 
+        // lights.draw_debug(camera);
+
         if (rl.isKeyPressed(.n)) {
             debug_mode = @mod(1 + debug_mode, 4); // 4 is max debug modes
+        }
+
+        if (rl.isKeyPressed(.q)) {
+            camera.rotation -= 0.1;
+        }
+
+        if (rl.isKeyPressed(.e)) {
+            camera.rotation += 0.1;
         }
 
         // drawing final shader pass
         rl.beginDrawing();
         rl.clearBackground(.blank);
         shader.activate();
-        lights.update(shader);
+        lights.update(camera, shader);
         rl.setShaderValueTexture(shader, rl.getShaderLocation(shader, "normal"), normal_render_texture.texture);
         rl.setShaderValueTexture(shader, rl.getShaderLocation(shader, "height"), height_render_texture.texture);
         rl.setShaderValue(shader, rl.getShaderLocation(shader, "debug_mode"), &debug_mode, .int);
