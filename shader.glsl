@@ -12,6 +12,7 @@ uniform int debug_mode = 0;
 struct Light {
     vec2 position;
     float height;
+    float radius;
     vec3 color;
 };
 
@@ -44,7 +45,7 @@ void main() {
 
 		float attenuation = clamp(ndotl, 0.0, 1.0);
 
-		lighting += lights[i].color * attenuation;
+		lighting += lights[i].color * attenuation / (length(to_light) / lights[i].radius);
 	}
 
 

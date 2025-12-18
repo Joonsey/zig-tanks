@@ -466,6 +466,7 @@ fn order_by_camera_position(camera: Camera, lhs: RenderRow, rhs: RenderRow) bool
 const Light = struct {
     position: rl.Vector2,
     height: u8,
+    radius: u8 = 50,
     color: rl.Color,
 };
 
@@ -498,6 +499,9 @@ const Lights = struct {
 
             const height: f32 = @as(f32, @floatFromInt(light.height)) / 255.0;
             rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].height", .{i})), &height, .float);
+
+            const radius: f32 = @as(f32, @floatFromInt(light.radius)) / 255.0;
+            rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].radius", .{i})), &radius, .float);
 
             var color: rl.Vector3 = .{
                 .x = @as(f32, @floatFromInt(light.color.r)) / 255.0,
@@ -575,9 +579,9 @@ pub fn main() !void {
     _ = ecs.transforms.add(item, .{ .position = relative_pos });
     _ = ecs.ssprite.add(item, &sprite);
 
-    // const item2 = ecs.create();
-    // _ = ecs.transforms.add(item2, .{ .position = .zero() });
-    // _ = ecs.ssprite.add(item2, &sprite);
+    const item2 = ecs.create();
+    _ = ecs.transforms.add(item2, .{ .position = .zero() });
+    _ = ecs.ssprite.add(item2, &sprite);
 
     for (0..2) |x| {
         const xi = ecs.create();
@@ -599,11 +603,12 @@ pub fn main() !void {
     while (!rl.windowShouldClose()) {
         const rotation: f32 = @floatCast(rl.getTime());
         _ = rotation;
-        if (ecs.transforms.get(item)) |t| {
+        if (ecs.transforms.get(item)) |_| {
             // t.rotation = rotation
-            lights.arr.items[0].position = camera.get_absolute_position(rl.getMousePosition().divide(.init(4, 4)));
-            t.position = camera.get_absolute_position(rl.getMousePosition().divide(.init(4, 4)));
+            // t.position = camera.get_absolute_position(rl.getMousePosition().divide(.init(4, 4)));
         }
+
+        lights.arr.items[0].position = camera.get_absolute_position(rl.getMousePosition().divide(.init(4, 4)));
 
         ecs.render(camera);
 
