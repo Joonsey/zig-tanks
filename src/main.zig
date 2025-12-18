@@ -3,6 +3,9 @@ const rl = @import("raylib");
 const window_height = 720;
 const window_width = 1080;
 
+const render_height = window_height / 4;
+const render_width = window_width / 4;
+
 var discreete_render_texture: rl.RenderTexture = undefined;
 var normal_render_texture: rl.RenderTexture = undefined;
 var height_render_texture: rl.RenderTexture = undefined;
@@ -10,11 +13,93 @@ var height_render_texture: rl.RenderTexture = undefined;
 var normal_shader: rl.Shader = undefined;
 var height_shader: rl.Shader = undefined;
 
+pub const Camera = struct {
+    position: rl.Vector2,
+    screen_offset: rl.Vector2,
+    render_dimensions: rl.Vector2,
+    rotation: f32,
+
+    const Self = @This();
+    pub fn init() Self {
+        return .{
+            .position = .{ .x = 0, .y = 0 },
+            .screen_offset = .{ .x = render_width / 2, .y = render_height * 0.8 },
+            .render_dimensions = .{ .x = render_width, .y = render_height },
+            .rotation = 0,
+        };
+    }
+
+    pub fn target(self: *Self, target_pos: rl.Vector2) void {
+        const coefficient = 10.0;
+        self.position.x += (target_pos.x - self.position.x) / coefficient;
+        self.position.y += (target_pos.y - self.position.y) / coefficient;
+    }
+
+    pub fn get_relative_position(self: Self, abs_position: rl.Vector2) rl.Vector2 {
+        const delta = abs_position.subtract(self.position);
+        const cos_r = @cos(-self.rotation);
+        const sin_r = @sin(-self.rotation);
+
+        const rotated: rl.Vector2 = .{
+            .x = delta.x * cos_r - delta.y * sin_r,
+            .y = delta.x * sin_r + delta.y * cos_r,
+        };
+
+        return rotated.add(self.screen_offset);
+    }
+
+    pub fn get_absolute_position(self: Self, relative_position: rl.Vector2) rl.Vector2 {
+        const delta = relative_position.subtract(self.screen_offset);
+        const cos_r = @cos(self.rotation);
+        const sin_r = @sin(self.rotation);
+
+        const rotated: rl.Vector2 = .{
+            .x = delta.x * cos_r - delta.y * sin_r,
+            .y = delta.x * sin_r + delta.y * cos_r,
+        };
+
+        return self.position.add(rotated);
+    }
+
+    pub fn is_out_of_bounds(self: Self, abs_position: rl.Vector2) bool {
+        const relative_pos = self.get_relative_position(abs_position);
+
+        const render_box = rl.Rectangle.init(0, 0, self.render_dimensions.x, self.render_dimensions.y);
+
+        const generosity = 100;
+        const arg_box = rl.Rectangle.init(relative_pos.x - generosity, relative_pos.y - generosity, generosity * 2, generosity * 2);
+
+        return !render_box.checkCollision(arg_box);
+    }
+};
+
+pub const Transform = struct {
+    position: rl.Vector2 = .{ .x = 0, .y = 0 },
+    rotation: f32 = 0,
+};
+
+fn draw_system_function(camera: Camera, query: []RenderRow) void {
+    _ = camera;
+
+    discreete_render_texture.begin();
+    for (query) |q| stack_draw(q.sprite.texture, q.transform.rotation, q.transform.position);
+    discreete_render_texture.end();
+
+    normal_render_texture.begin();
+    for (query) |q| {
+        const t = q.transform;
+        const s = q.sprite;
+        normal_shader.activate();
+        rl.setShaderValue(normal_shader, rl.getShaderLocation(normal_shader, "rotation"), &t.rotation, .float);
+        stack_draw(s.normals, t.rotation, t.position);
+        normal_shader.deactivate();
+    }
+    normal_render_texture.end();
+}
+
 pub const SSprite = struct {
     texture: rl.Texture,
     normals: rl.Texture,
-    rotation: f32 = 0,
-    position: rl.Vector2 = .{ .x = 0, .y = 0 },
 
     const Self = @This();
     pub fn init(path: [:0]const u8, allocator: std.mem.Allocator) !Self {
@@ -34,42 +119,163 @@ pub const SSprite = struct {
 
         return .{ .normals = normals, .texture = texture };
     }
+};
 
-    pub fn draw(self: Self) void {
-        discreete_render_texture.begin();
-        stack_draw(self.texture, self.rotation, self.position);
-        discreete_render_texture.end();
+pub const Entity = u32;
 
-        normal_render_texture.begin();
-        normal_shader.activate();
-        rl.setShaderValue(normal_shader, rl.getShaderLocation(normal_shader, "rotation"), &self.rotation, .float);
-        stack_draw(self.normals, self.rotation, self.position);
-        normal_shader.deactivate();
-        normal_render_texture.end();
+pub fn SparseSet(comptime T: type) type {
+    return struct {
+        dense_entities: std.ArrayList(Entity),
+        dense: std.ArrayList(T),
+        sparse: []usize,
 
-        // eats up performance, disabling for now
-        //height_render_texture.begin();
-        //// drawing manually because we need to embedd shader information
-        //const width = self.texture.width;
-        //const rows: usize = @intCast(@divTrunc(self.texture.height, width));
-        //const f_width: f32 = @floatFromInt(width);
-        //for (0..rows) |i| {
-        //    const f_inverse_i: f32 = @floatFromInt(rows - (i + 1));
-        //    const f_i: f32 = @floatFromInt(i);
-        //    // need to activate and deactivate to disabling batching
-        //    // causing the 'height' to be shadowed and equal to the latest value
-        //    height_shader.activate();
-        //    rl.setShaderValue(height_shader, rl.getShaderLocation(height_shader, "height"), &(f_i), .float);
-        //    self.texture.drawPro(
-        //        .{ .x = 0, .y = f_inverse_i * f_width, .width = f_width, .height = f_width },
-        //        .{ .x = self.position.x, .y = self.position.y - f_i, .width = f_width, .height = f_width },
-        //        .{ .x = f_width / 2, .y = f_width / 2 },
-        //        std.math.radiansToDegrees(self.rotation),
-        //        .white,
-        //    );
-        //    height_shader.deactivate();
-        //}
-        //height_render_texture.end();
+        const invalid = std.math.maxInt(usize);
+
+        pub fn init(
+            allocator: std.mem.Allocator,
+            max_entities: usize,
+        ) @This() {
+            const sparse = allocator.alloc(usize, max_entities) catch unreachable;
+            @memset(sparse, invalid);
+
+            return .{
+                .dense_entities = std.ArrayList(Entity).initCapacity(allocator, max_entities) catch unreachable,
+                .dense = std.ArrayList(T).initCapacity(allocator, max_entities) catch unreachable,
+                .sparse = sparse,
+            };
+        }
+
+        pub fn add(self: *@This(), e: Entity, value: T) *T {
+            const idx = self.dense.items.len;
+            self.sparse[e] = idx;
+
+            self.dense_entities.appendAssumeCapacity(e);
+            self.dense.appendAssumeCapacity(value);
+
+            return &self.dense.items[idx];
+        }
+
+        pub fn remove(self: *@This(), e: Entity) void {
+            const idx = self.sparse[e];
+            if (idx == invalid) return;
+
+            const last = self.dense.items.len - 1;
+
+            if (idx != last) {
+                self.dense.items[idx] = self.dense.items[last];
+                const moved = self.dense_entities.items[last];
+                self.dense_entities.items[idx] = moved;
+                self.sparse[moved] = idx;
+            }
+
+            _ = self.dense.pop();
+            _ = self.dense_entities.pop();
+            self.sparse[e] = invalid;
+        }
+
+        pub fn has(self: *@This(), e: Entity) bool {
+            return self.sparse[e] != invalid;
+        }
+
+        pub fn get(self: *@This(), e: Entity) ?*T {
+            const idx = self.sparse[e];
+            if (idx == invalid) return null;
+            return &self.dense.items[idx];
+        }
+
+        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            self.dense_entities.deinit(allocator);
+            self.dense.deinit(allocator);
+            allocator.free(self.sparse);
+        }
+    };
+}
+
+const MAX_ENTITY_COUNT = 10000;
+
+const RenderRow = struct {
+    entity: Entity,
+    transform: *Transform,
+    sprite: *SSprite,
+};
+
+const ECS = struct {
+    transforms: SparseSet(Transform),
+    ssprite: SparseSet(*SSprite),
+
+    render_rows: std.ArrayList(RenderRow),
+
+    next: Entity = 0,
+    free_entities: std.ArrayList(Entity),
+
+    allocator: std.mem.Allocator,
+
+    const Self = @This();
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return .{
+            .transforms = .init(allocator, MAX_ENTITY_COUNT),
+            .ssprite = .init(allocator, MAX_ENTITY_COUNT),
+
+            .render_rows = std.ArrayList(RenderRow).initCapacity(allocator, MAX_ENTITY_COUNT) catch unreachable,
+
+            .free_entities = std.ArrayList(Entity).initCapacity(allocator, MAX_ENTITY_COUNT) catch unreachable,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn create(self: *Self) Entity {
+        if (self.free_entities.items.len > 0) {
+            return self.free_entities.pop().?;
+        }
+        const id = self.next;
+        self.next += 1;
+        return id;
+    }
+
+    pub fn destroy(self: *Self, e: Entity) void {
+        // TODO guarantee capacity
+        self.free_entities.appendAssumeCapacity(e);
+
+        self.transforms.remove(e);
+        self.ssprite.remove(e);
+    }
+
+    fn query_render_rows(transforms: *SparseSet(Transform), sprites: *SparseSet(*SSprite), out: *std.ArrayList(RenderRow)) void {
+        out.clearRetainingCapacity();
+
+        for (sprites.dense_entities.items, 0..) |e, i| {
+            if (transforms.get(e)) |t| {
+                // TODO guarantee capacity
+                out.appendAssumeCapacity(.{ .entity = e, .transform = t, .sprite = sprites.dense.items[i] });
+            }
+        }
+    }
+
+    pub fn render(self: *Self, camera: Camera) void {
+        // TODO implement the 'S' part of the ECS
+        // would be sick if we could reflect on the parameters and add them dynamically
+        query_render_rows(&self.transforms, &self.ssprite, &self.render_rows);
+
+        draw_system_function(camera, self.render_rows.items);
+    }
+
+    pub fn free(self: *Self) void {
+        self.ssprite.deinit(self.allocator);
+        self.transforms.deinit(self.allocator);
+
+        self.render_rows.clearAndFree(self.allocator);
+        self.free_entities.clearAndFree(self.allocator);
+    }
+
+    pub fn debug(self: *Self) void {
+        std.log.debug("ECS DEBUG START", .{});
+        for (0..self.next) |ue| {
+            const e: Entity = @intCast(ue);
+            std.log.debug("{?} | {?*}", .{
+                self.transforms.get(e),
+                if (self.ssprite.get(e)) |s| s.* else null,
+            });
+        }
     }
 };
 
@@ -241,7 +447,54 @@ fn build_normal_atlas(atlas: []u8, slice_size: usize, slice_count: usize) !rl.Te
     return gradient_texture;
 }
 
+const Light = struct {
+    position: rl.Vector2,
+    height: u8,
+    color: rl.Color,
+};
+
+const Lights = struct {
+    arr: std.ArrayList(Light),
+    allocator: std.mem.Allocator,
+
+    const Self = @This();
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return .{ .allocator = allocator, .arr = .{} };
+    }
+
+    pub fn add(self: *Self, light: Light) void {
+        self.arr.append(self.allocator, light) catch unreachable;
+
+        // TOO MANY LIGHTS DO SOMETHING ABOUT IT AND REMOVE THIS
+        // ONLY AFTER THIS HAS BEEN RESOLVED FOR
+        if (self.arr.items.len >= 25) @panic("TOO MANY LIGHTS");
+    }
+
+    pub fn update(self: Self, shader: rl.Shader) void {
+        for (0.., self.arr.items) |i, light| {
+            rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].position", .{i})), &light.position.divide(.init(render_width, render_height)), .vec2);
+
+            const height: f32 = @as(f32, @floatFromInt(light.height)) / 255.0;
+            rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].height", .{i})), &height, .float);
+
+            var color: rl.Vector3 = .{
+                .x = @as(f32, @floatFromInt(light.color.r)) / 255.0,
+                .y = @as(f32, @floatFromInt(light.color.g)) / 255.0,
+                .z = @as(f32, @floatFromInt(light.color.b)) / 255.0,
+            };
+            color = color.scale(@as(f32, @floatFromInt(light.color.a)) / 255.0);
+            rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].color", .{i})), &color, .vec3);
+        }
+        rl.setShaderValue(shader, rl.getShaderLocation(shader, "light_count"), &self.arr.items.len, .int);
+    }
+
+    pub fn free(self: *Self) void {
+        self.arr.clearAndFree(self.allocator);
+    }
+};
+
 pub fn main() !void {
+    rl.setTraceLogLevel(.err);
     rl.initWindow(window_width, window_height, "test");
     defer rl.closeWindow();
 
@@ -261,60 +514,66 @@ pub fn main() !void {
     // 3 Discreet
     var debug_mode: i32 = 0;
 
-    discreete_render_texture = try rl.loadRenderTexture(window_width / 4, window_height / 4);
-    normal_render_texture = try rl.loadRenderTexture(window_width / 4, window_height / 4);
-    height_render_texture = try rl.loadRenderTexture(window_width / 4, window_height / 4);
+    discreete_render_texture = try rl.loadRenderTexture(render_width, render_height);
+    normal_render_texture = try rl.loadRenderTexture(render_width, render_height);
+    height_render_texture = try rl.loadRenderTexture(render_width, render_height);
 
     const shader = try rl.loadShader(null, "shader.glsl");
     normal_shader = try rl.loadShader(null, "normal.glsl");
     height_shader = try rl.loadShader(null, "height.glsl");
 
-    var sprite = try SSprite.init("car_base.png", allocator);
+    var sprite = try SSprite.init("itembox.png", allocator);
+    var sprite2 = try SSprite.init("car_base.png", allocator);
 
-    const relative_pos: rl.Vector2 = .{ .x = window_width / 8, .y = window_height / 8 };
-    sprite.position = relative_pos;
+    const relative_pos: rl.Vector2 = .{ .x = render_width / 2, .y = render_height / 2 };
 
-    var light_height: f32 = 15.0 / 255.0;
+    const camera: Camera = .init();
+
+    var ecs = ECS.init(allocator);
+    defer ecs.free();
+    defer ecs.debug();
+    const item = ecs.create();
+    _ = ecs.transforms.add(item, .{ .position = relative_pos });
+    _ = ecs.ssprite.add(item, &sprite);
+
+    for (0..10) |x| {
+        const item2 = ecs.create();
+        _ = ecs.transforms.add(item2, .{ .position = relative_pos.subtract(.init(80, 0)).add(.init(@floatFromInt(x * 40), 0)) });
+        _ = ecs.ssprite.add(item2, &sprite2);
+    }
+
+    ecs.destroy(2);
+
+    var lights = Lights.init(allocator);
+    defer lights.free();
+    lights.add(.{ .color = .white, .height = 15, .position = relative_pos.add(.init(0, 30)) });
+    lights.add(.{ .color = .green, .height = 45, .position = relative_pos.add(.init(-20, 0)) });
+    lights.add(.{ .color = .orange, .height = 45, .position = relative_pos.add(.init(-20, 100)) });
+    lights.add(.{ .color = .red, .height = 15, .position = relative_pos.add(.init(-200, 300)) });
 
     while (!rl.windowShouldClose()) {
-        sprite.rotation = @floatCast(rl.getTime());
-        sprite.position = relative_pos;
+        const rotation: f32 = @floatCast(rl.getTime());
+        if (ecs.transforms.get(item)) |t| t.rotation = rotation;
 
-        for (0..10) |x| {
-            sprite.position.x = @floatFromInt(x * 40);
-            sprite.draw();
-        }
-
-        // debug buttons
-        if (rl.isMouseButtonPressed(.left)) {
-            light_height += (1.0 / 255.0);
-            std.log.debug("light_height: {d:.0}", .{light_height * 255.0});
-        }
-        if (rl.isMouseButtonPressed(.right)) {
-            light_height -= (1.0 / 255.0);
-            std.log.debug("light_height: {d:.0}", .{light_height * 255.0});
-        }
+        ecs.render(camera);
 
         if (rl.isKeyPressed(.n)) {
             debug_mode = @mod(1 + debug_mode, 4); // 4 is max debug modes
         }
 
-        const mouse = rl.getMousePosition().divide(.{ .x = window_width, .y = window_height });
-
         // drawing final shader pass
         rl.beginDrawing();
         rl.clearBackground(.blank);
         shader.activate();
+        lights.update(shader);
         rl.setShaderValueTexture(shader, rl.getShaderLocation(shader, "normal"), normal_render_texture.texture);
         rl.setShaderValueTexture(shader, rl.getShaderLocation(shader, "height"), height_render_texture.texture);
-        rl.setShaderValueV(shader, rl.getShaderLocation(shader, "mouse"), &mouse, .vec2, 1);
         rl.setShaderValue(shader, rl.getShaderLocation(shader, "debug_mode"), &debug_mode, .int);
-        rl.setShaderValue(shader, rl.getShaderLocation(shader, "light_height"), &light_height, .float);
         rl.drawTexturePro(discreete_render_texture.texture, .{
             .x = 0,
             .y = 0,
-            .width = @floatFromInt(window_width / 4),
-            .height = @floatFromInt(-window_height / 4),
+            .width = @floatFromInt(render_width),
+            .height = @floatFromInt(-render_height),
         }, .{
             .x = 0,
             .y = 0,

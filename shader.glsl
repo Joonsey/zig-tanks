@@ -7,26 +7,44 @@ uniform sampler2D texture0;
 uniform sampler2D normal;
 uniform sampler2D height;
 
-uniform vec2 mouse;
-uniform float light_height = 0.4;
-
 uniform int debug_mode = 0;
+
+struct Light {
+    vec2 position;
+    float height;
+    vec3 color;
+};
+
+#define MAX_LIGHTS 25
+
+uniform int light_count;
+uniform Light lights[MAX_LIGHTS];
+uniform float ambiance = 0.1;
+
 
 void main() {
     vec2 uv = fragTexCoord;
     vec4 color = texture(texture0, uv);
 
-	vec2 m = mouse;
-	m.y = 1 - m.y;
+	vec3 lighting = vec3(0.0);
+	vec3 n = texture(normal, uv).xyz * 2.0 - 1.0;
 
-    vec3 to_light = vec3(m, light_height) - vec3(uv, texture(height, uv).r);
-    vec3 light_dir = normalize(to_light);
+	for (int i = 0; i < light_count; i++) {
+		vec2 lp = lights[i].position;
+		lp.y = 1.0 - lp.y;
 
-    vec3 n = texture(normal, uv).xyz * 2.0 - 1.0;
+		vec3 to_light = vec3(lp, lights[i].height) - vec3(uv, texture(height, uv).r);
+	    vec3 light_dir = normalize(to_light);
 
-    float l = max(dot(n, light_dir), 0.0);
+		float ndotl = max(dot(n, light_dir), 0.0);
 
-    finalColor = vec4(color.rgb * clamp(l / (length(to_light) / 0.2), 0.1, 1.0), color.a);
+		float attenuation = clamp(ndotl, 0.0, 1.0);
+
+		lighting += lights[i].color * attenuation;
+	}
+
+
+	finalColor = vec4(color.rgb * clamp(lighting, ambiance, 1.0), color.a);
 
 	if (debug_mode == 1) finalColor = vec4(texture(normal, uv).rgb, 1);
 	if (debug_mode == 2) finalColor = vec4(texture(height, uv).rgb, 1);
