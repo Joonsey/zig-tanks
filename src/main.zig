@@ -1,5 +1,6 @@
 const std = @import("std");
 const rl = @import("raylib");
+const rg = @import("raygui");
 
 const assets = @import("assets.zig");
 const Level = @import("level.zig").Level;
@@ -129,6 +130,7 @@ const ECS = struct {
     transforms: SparseSet(Transform),
     ssprite: SparseSet(*assets.SSprite),
     light: SparseSet(Light),
+    collider: SparseSet(Collider),
 
     render_rows: std.ArrayList(RenderRow),
 
@@ -143,6 +145,7 @@ const ECS = struct {
             .transforms = .init(allocator, MAX_ENTITY_COUNT),
             .ssprite = .init(allocator, MAX_ENTITY_COUNT),
             .light = .init(allocator, MAX_ENTITY_COUNT),
+            .collider = .init(allocator, MAX_ENTITY_COUNT),
 
             .render_rows = std.ArrayList(RenderRow).initCapacity(allocator, MAX_ENTITY_COUNT) catch unreachable,
 
@@ -160,6 +163,17 @@ const ECS = struct {
         return id;
     }
 
+    pub fn copy(self: *Self, e: Entity) Entity {
+        const ne = self.create();
+
+        if (self.light.get(e)) |l| _ = self.light.add(ne, l.*);
+        if (self.transforms.get(e)) |l| _ = self.transforms.add(ne, l.*);
+        if (self.ssprite.get(e)) |l| _ = self.ssprite.add(ne, l.*);
+        if (self.collider.get(e)) |l| _ = self.collider.add(ne, l.*);
+
+        return ne;
+    }
+
     pub fn destroy(self: *Self, e: Entity) void {
         // TODO guarantee capacity
         self.free_entities.appendAssumeCapacity(e);
@@ -167,6 +181,7 @@ const ECS = struct {
         self.light.remove(e);
         self.transforms.remove(e);
         self.ssprite.remove(e);
+        self.collider.remove(e);
     }
 
     fn query_render_rows(camera: Camera, transforms: *SparseSet(Transform), sprites: *SparseSet(*assets.SSprite), out: *std.ArrayList(RenderRow)) void {
@@ -204,6 +219,7 @@ const ECS = struct {
         self.ssprite.deinit(self.allocator);
         self.transforms.deinit(self.allocator);
         self.light.deinit(self.allocator);
+        self.collider.deinit(self.allocator);
 
         self.render_rows.clearAndFree(self.allocator);
         self.free_entities.clearAndFree(self.allocator);
@@ -309,10 +325,117 @@ const LightSystem = struct {
     }
 };
 
+// Collisions are always around the center position of the object
+// i am opting to do this because we don't need the 'position' from raylib
+// aditionaly they need to be fine-tuned as they need to be rotated and i don't think a simple AABB
+// rotation will suffice for rectangular collisions.
+// in the instance for Rectangle, the X and Y are in radius, not diameter. Along each axis.
+const Collider = union(enum) {
+    Circle: f32,
+    Rectangle: rl.Vector2,
+};
+
+const EditorUI = struct {
+    selected_entity: ?Entity = null,
+};
+
+fn draw_ui(ui: *EditorUI, ecs: *ECS) void {
+    const width = 120;
+    if (ui.selected_entity) |e| {
+        var i: f32 = 22;
+        // transform
+        if (ecs.transforms.get(e)) |t| {
+            _ = rg.label(.init(20, i, width, 20), "Transform");
+            i += 22;
+            _ = rg.slider(.init(20, i, width, 20), "", "X", &t.position.x, 0, 600);
+            i += 22;
+            _ = rg.slider(.init(20, i, width, 20), "", "Y", &t.position.y, 0, 600);
+            i += 22;
+            _ = rg.slider(.init(20, i, width, 20), "", "Rotation", &t.rotation, 0, std.math.pi * 2);
+            i += 22;
+        }
+        // light
+        if (ecs.light.get(e)) |l| {
+            _ = rg.label(.init(20, i, width, 20), "Lighting");
+            i += 22;
+            _ = rg.colorPicker(.init(20, i, width, 40), "", &l.color);
+            i += 42;
+            var h: f32 = @floatFromInt(l.height);
+            _ = rg.slider(.init(20, i, width, 20), "", "Height", &h, 0, 200);
+            l.height = @intFromFloat(h);
+            i += 22;
+
+            var r: f32 = @floatFromInt(l.radius);
+            _ = rg.slider(.init(20, i, width, 20), "", "Radius", &r, 0, 255);
+            l.radius = @intFromFloat(r);
+            i += 22;
+        }
+        // collider
+        if (ecs.collider.get(e)) |c| {
+            _ = rg.label(.init(20, i, width, 20), "Collider");
+            i += 22;
+            switch (c.*) {
+                .Circle => {
+                    _ = rg.slider(.init(20, i, width, 20), "", "Radius", &c.Circle, 0, 255);
+                    i += 22;
+                },
+                .Rectangle => |*r| {
+                    _ = rg.slider(.init(20, i, width, 20), "", "X (radius)", &r.x, 0, 255);
+                    i += 22;
+                    _ = rg.slider(.init(20, i, width, 20), "", "Y (radius)", &r.y, 0, 255);
+                    i += 22;
+                },
+            }
+        }
+    }
+}
+
+fn handle_input(camera: *Camera, dt: f32) void {
+    const forward: rl.Vector2 = .{
+        .x = @cos(camera.rotation),
+        .y = @sin(camera.rotation),
+    };
+
+    const right: rl.Vector2 = .{
+        .x = @cos(camera.rotation + std.math.pi * 0.5),
+        .y = @sin(camera.rotation + std.math.pi * 0.5),
+    };
+
+    const accel = 600;
+    var position = camera.position;
+    if (rl.isKeyDown(.d)) {
+        position.x += accel * forward.x * dt;
+        position.y += accel * forward.y * dt;
+    }
+    if (rl.isKeyDown(.a)) {
+        position.x -= accel * forward.x * dt;
+        position.y -= accel * forward.y * dt;
+    }
+    if (rl.isKeyDown(.s)) {
+        position.x += accel * right.x * dt;
+        position.y += accel * right.y * dt;
+    }
+    if (rl.isKeyDown(.w)) {
+        position.x -= accel * right.x * dt;
+        position.y -= accel * right.y * dt;
+    }
+
+    if (rl.isKeyDown(.q)) {
+        camera.rotation -= 3 * dt;
+    }
+    if (rl.isKeyDown(.e)) {
+        camera.rotation += 3 * dt;
+    }
+
+    camera.target(position);
+}
+
 pub fn main() !void {
     rl.setTraceLogLevel(.warning);
     rl.initWindow(window_width, window_height, "test");
     defer rl.closeWindow();
+
+    rg.loadStyle("style_dark.rgs");
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -363,9 +486,13 @@ pub fn main() !void {
         _ = ecs.light.add(e, .{ .color = .yellow, .height = 15 });
         _ = ecs.transforms.add(e, .{ .position = .{ .x = @floatFromInt(i * 120), .y = 20 } });
         _ = ecs.ssprite.add(e, &assets.LAMP);
+        _ = ecs.collider.add(e, .{ .Circle = 8 });
     }
 
+    var eui: EditorUI = .{};
+
     while (!rl.windowShouldClose()) {
+        const dt = rl.getFrameTime();
         lvl.draw_normals(camera, normal_render_texture);
         lvl.draw(camera, discreete_render_texture);
         ecs.render(camera);
@@ -374,19 +501,49 @@ pub fn main() !void {
             debug_mode = @mod(1 + debug_mode, 4); // 4 is max debug modes
         }
 
-        if (ecs.transforms.get(2)) |t| {
-            t.position = camera.get_absolute_position(rl.getMousePosition().divide(.init(4, 4)));
+        if (rl.isKeyDown(.q)) eui.selected_entity = null;
+
+        handle_input(&camera, dt);
+
+        if (rl.isMouseButtonPressed(.left)) {
+            for (ecs.transforms.dense_entities.items) |e| if (ecs.transforms.get(e)) |t| {
+                const mouse_position = rl.getMousePosition().divide(.init(4, 4));
+                const relative_mouse_position = camera.get_absolute_position(mouse_position);
+                if (relative_mouse_position.distance(t.position) < 8) {
+                    eui.selected_entity = e;
+                    break;
+                }
+            };
         }
 
-        if (rl.isKeyPressed(.q)) {
-            camera.rotation -= 0.3;
+        if (rl.isMouseButtonPressed(.right)) {
+            for (ecs.transforms.dense_entities.items) |e| if (ecs.transforms.get(e)) |t| {
+                const mouse_position = rl.getMousePosition().divide(.init(4, 4));
+                const relative_mouse_position = camera.get_absolute_position(mouse_position);
+                if (relative_mouse_position.distance(t.position) < 8) {
+                    eui.selected_entity = ecs.copy(e);
+                }
+            };
         }
 
-        if (rl.isKeyPressed(.e)) {
-            camera.rotation += 0.3;
+        if (rl.isMouseButtonDown(.right) or rl.isMouseButtonDown(.left)) {
+            const mouse_position = rl.getMousePosition().divide(.init(4, 4));
+            const relative_mouse_position = camera.get_absolute_position(mouse_position);
+
+            if (eui.selected_entity) |e| {
+                if (ecs.transforms.get(e)) |t| {
+                    if (relative_mouse_position.distance(t.position) < 16 and ((rl.getMouseDelta().length() > 0) or rl.isKeyPressed(.w) or rl.isKeyPressed(.a) or rl.isKeyPressed(.s) or rl.isKeyPressed(.d))) {
+                        t.position = relative_mouse_position;
+                    }
+                }
+            }
         }
 
-        // drawing final shader pass
+        if (rl.isKeyPressed(.delete)) {
+            if (eui.selected_entity) |e| ecs.destroy(e);
+            eui.selected_entity = null;
+        }
+
         rl.beginDrawing();
         rl.clearBackground(.blank);
 
@@ -408,8 +565,6 @@ pub fn main() !void {
         }, rl.Vector2.zero(), 0, .white);
         shader.deactivate();
 
-        // lvl.graphics_texture.drawV(.zero(), .white);
-        // lvl.normal_texture.drawV(.zero(), .white);
         // drawing debug information
         rl.drawFPS(0, 0);
         switch (debug_mode) {
@@ -418,9 +573,10 @@ pub fn main() !void {
             3 => rl.drawText("discreet", 0, 20, 50, .white),
             else => {},
         }
+        draw_ui(&eui, &ecs);
         rl.endDrawing();
 
-        // cleaning up render texture
+        // cleaning up render textures
         discreete_render_texture.begin();
         rl.clearBackground(.blank);
         discreete_render_texture.end();
