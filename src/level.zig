@@ -38,7 +38,7 @@ pub const Level = struct {
                     normals[dst + 0] = @intFromFloat(std.math.clamp(0 * 0.5 + 0.5, 0.0, 1.0) * 255);
                     normals[dst + 1] = @intFromFloat(std.math.clamp(0 * 0.5 + 0.5, 0.0, 1.0) * 255);
                     normals[dst + 2] = @intFromFloat(std.math.clamp(1 * 0.5 + 0.5, 0.0, 1.0) * 255);
-                    normals[dst + 3] = 200; // luminocity
+                    normals[dst + 3] = 50; // luminocity
                 } else {
                     normals[dst + 0] = 0;
                     normals[dst + 1] = 0;
@@ -65,7 +65,7 @@ pub const Level = struct {
         rl.beginBlendMode(.custom);
         rl.gl.rlSetBlendFactors(1, 0, rl.gl.rl_func_add);
         normal_render_texture.begin();
-        const relative_pos = camera.get_relative_position(.{ .x = -400, .y = -400 });
+        const relative_pos = camera.get_relative_position(.zero());
 
         const texture = self.normal_texture;
         const f_width: f32 = @floatFromInt(texture.width);
@@ -83,7 +83,7 @@ pub const Level = struct {
 
     pub fn draw(self: Self, camera: Camera, discreete_render_texture: rl.RenderTexture) void {
         discreete_render_texture.begin();
-        const relative_pos = camera.get_relative_position(.{ .x = -400, .y = -400 });
+        const relative_pos = camera.get_relative_position(.zero());
 
         const texture = self.graphics_texture;
         const f_width: f32 = @floatFromInt(texture.width);
