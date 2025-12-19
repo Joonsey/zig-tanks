@@ -252,7 +252,7 @@ fn order_by_camera_position(camera: Camera, lhs: RenderRow, rhs: RenderRow) bool
 
 const Light = struct {
     height: u8,
-    radius: u8 = 50,
+    radius: u8 = 120,
     color: rl.Color,
 };
 
@@ -344,6 +344,7 @@ pub fn main() !void {
     const relative_pos: rl.Vector2 = .{ .x = render_width / 2, .y = render_height / 2 };
 
     var camera: Camera = .init(render_width, render_height);
+    camera.position = .init(100, 100);
 
     var ecs = ECS.init(allocator);
     defer ecs.free();
@@ -354,7 +355,7 @@ pub fn main() !void {
 
     const item2 = ecs.create();
     _ = ecs.transforms.add(item2, .{ .position = relative_pos });
-    _ = ecs.light.add(item2, .{ .color = .white, .height = 50 });
+    _ = ecs.light.add(item2, .{ .color = .green, .height = 15 });
 
     var lights = LightSystem.init(allocator);
     defer lights.free(allocator);
