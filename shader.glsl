@@ -20,7 +20,7 @@ struct Light {
 
 uniform int light_count;
 uniform Light lights[MAX_LIGHTS];
-uniform float ambiance = 0.4;
+uniform float ambiance = 0.2;
 
 
 void main() {
