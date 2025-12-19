@@ -20,7 +20,7 @@ struct Light {
 
 uniform int light_count;
 uniform Light lights[MAX_LIGHTS];
-uniform float ambiance = 0.1;
+uniform float ambiance = 0.7;
 
 
 void main() {
@@ -45,12 +45,11 @@ void main() {
 
 		float attenuation = clamp(ndotl, 0.0, 1.0);
 
-		lighting += lights[i].color * attenuation / (length(to_light) / lights[i].radius);
+		lighting += lights[i].color * attenuation / (length(to_light) / lights[i].radius) * (texture(normal, uv).a);
 	}
 
 
 	finalColor = vec4(color.rgb * clamp(lighting, ambiance, 1.0), color.a);
-
 	if (debug_mode == 1) finalColor = vec4(texture(normal, uv).rgb, 1);
 	if (debug_mode == 2) finalColor = vec4(texture(height, uv).rgb, 1);
 	if (debug_mode == 3) finalColor = vec4(texture(texture0, uv).rgb, 1);

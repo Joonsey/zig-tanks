@@ -2,6 +2,9 @@ const std = @import("std");
 const rl = @import("raylib");
 
 const assets = @import("assets.zig");
+const Level = @import("level.zig").Level;
+
+const Camera = @import("camera.zig").Camera;
 
 const window_height = 720;
 const window_width = 1080;
@@ -15,66 +18,6 @@ var height_render_texture: rl.RenderTexture = undefined;
 
 var normal_shader: rl.Shader = undefined;
 var height_shader: rl.Shader = undefined;
-
-pub const Camera = struct {
-    position: rl.Vector2,
-    screen_offset: rl.Vector2,
-    render_dimensions: rl.Vector2,
-    rotation: f32,
-
-    const Self = @This();
-    pub fn init() Self {
-        return .{
-            .position = .{ .x = 0, .y = 0 },
-            .screen_offset = .{ .x = render_width / 2, .y = render_height * 0.8 },
-            .render_dimensions = .{ .x = render_width, .y = render_height },
-            .rotation = 0,
-        };
-    }
-
-    pub fn target(self: *Self, target_pos: rl.Vector2) void {
-        const coefficient = 10.0;
-        self.position.x += (target_pos.x - self.position.x) / coefficient;
-        self.position.y += (target_pos.y - self.position.y) / coefficient;
-    }
-
-    pub fn get_relative_position(self: Self, abs_position: rl.Vector2) rl.Vector2 {
-        const delta = abs_position.subtract(self.position);
-        const cos_r = @cos(-self.rotation);
-        const sin_r = @sin(-self.rotation);
-
-        const rotated: rl.Vector2 = .{
-            .x = delta.x * cos_r - delta.y * sin_r,
-            .y = delta.x * sin_r + delta.y * cos_r,
-        };
-
-        return rotated.add(self.screen_offset);
-    }
-
-    pub fn get_absolute_position(self: Self, relative_position: rl.Vector2) rl.Vector2 {
-        const delta = relative_position.subtract(self.screen_offset);
-        const cos_r = @cos(self.rotation);
-        const sin_r = @sin(self.rotation);
-
-        const rotated: rl.Vector2 = .{
-            .x = delta.x * cos_r - delta.y * sin_r,
-            .y = delta.x * sin_r + delta.y * cos_r,
-        };
-
-        return self.position.add(rotated);
-    }
-
-    pub fn is_out_of_bounds(self: Self, abs_position: rl.Vector2) bool {
-        const relative_pos = self.get_relative_position(abs_position);
-
-        const render_box = rl.Rectangle.init(0, 0, self.render_dimensions.x, self.render_dimensions.y);
-
-        const generosity = 100;
-        const arg_box = rl.Rectangle.init(relative_pos.x - generosity, relative_pos.y - generosity, generosity * 2, generosity * 2);
-
-        return !render_box.checkCollision(arg_box);
-    }
-};
 
 pub const Transform = struct {
     position: rl.Vector2 = .{ .x = 0, .y = 0 },
@@ -400,7 +343,7 @@ pub fn main() !void {
 
     const relative_pos: rl.Vector2 = .{ .x = render_width / 2, .y = render_height / 2 };
 
-    var camera: Camera = .init();
+    var camera: Camera = .init(render_width, render_height);
 
     var ecs = ECS.init(allocator);
     defer ecs.free();
@@ -408,16 +351,23 @@ pub fn main() !void {
     const item = ecs.create();
     _ = ecs.transforms.add(item, .{ .position = relative_pos });
     _ = ecs.ssprite.add(item, &assets.CAR_BASE);
-    _ = ecs.light.add(item, .{ .color = .red, .height = 50 });
+
+    const item2 = ecs.create();
+    _ = ecs.transforms.add(item2, .{ .position = relative_pos });
+    _ = ecs.light.add(item2, .{ .color = .white, .height = 50 });
 
     var lights = LightSystem.init(allocator);
     defer lights.free(allocator);
 
+    const lvl = try Level.init("dads", allocator, render_width, render_height);
+
     while (!rl.windowShouldClose()) {
-        if (ecs.transforms.get(item)) |t| {
+        if (ecs.transforms.get(item2)) |t| {
             t.position = camera.get_absolute_position(rl.getMousePosition().divide(.init(4, 4)));
         }
 
+        lvl.draw_normals(camera, normal_render_texture);
+        lvl.draw(camera, discreete_render_texture);
         ecs.render(camera);
 
         if (rl.isKeyPressed(.n)) {
@@ -454,6 +404,8 @@ pub fn main() !void {
         }, rl.Vector2.zero(), 0, .white);
         shader.deactivate();
 
+        // lvl.graphics_texture.drawV(.zero(), .white);
+        // lvl.normal_texture.drawV(.zero(), .white);
         // drawing debug information
         rl.drawFPS(0, 0);
         switch (debug_mode) {
