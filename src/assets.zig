@@ -179,11 +179,13 @@ pub const SSprite = struct {
 pub var CAR_BASE: SSprite = undefined;
 pub var FENCE_0: SSprite = undefined;
 pub var ITEMBOX: SSprite = undefined;
+pub var LAMP: SSprite = undefined;
 
 pub fn init(allocator: std.mem.Allocator) !void {
     CAR_BASE = try .init("car_base.png", allocator);
     FENCE_0 = try .init("fence-0.png", allocator);
     ITEMBOX = try .init("itembox.png", allocator);
+    LAMP = try .init("lamp.png", allocator);
 }
 
 pub fn free(allocator: std.mem.Allocator) void {

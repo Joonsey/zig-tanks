@@ -353,20 +353,19 @@ pub fn main() !void {
     _ = ecs.transforms.add(item, .{ .position = relative_pos });
     _ = ecs.ssprite.add(item, &assets.CAR_BASE);
 
-    const item2 = ecs.create();
-    _ = ecs.transforms.add(item2, .{ .position = relative_pos });
-    _ = ecs.light.add(item2, .{ .color = .green, .height = 15 });
-
     var lights = LightSystem.init(allocator);
     defer lights.free(allocator);
 
     const lvl = try Level.init("dads", allocator, render_width, render_height);
 
-    while (!rl.windowShouldClose()) {
-        if (ecs.transforms.get(item2)) |t| {
-            t.position = camera.get_absolute_position(rl.getMousePosition().divide(.init(4, 4)));
-        }
+    for (0..10) |i| {
+        const e = ecs.create();
+        _ = ecs.light.add(e, .{ .color = .yellow, .height = 15 });
+        _ = ecs.transforms.add(e, .{ .position = .{ .x = @floatFromInt(i * 120), .y = 20 } });
+        _ = ecs.ssprite.add(e, &assets.LAMP);
+    }
 
+    while (!rl.windowShouldClose()) {
         lvl.draw_normals(camera, normal_render_texture);
         lvl.draw(camera, discreete_render_texture);
         ecs.render(camera);
@@ -375,12 +374,16 @@ pub fn main() !void {
             debug_mode = @mod(1 + debug_mode, 4); // 4 is max debug modes
         }
 
+        if (ecs.transforms.get(2)) |t| {
+            t.position = camera.get_absolute_position(rl.getMousePosition().divide(.init(4, 4)));
+        }
+
         if (rl.isKeyPressed(.q)) {
-            camera.rotation -= 0.1;
+            camera.rotation -= 0.3;
         }
 
         if (rl.isKeyPressed(.e)) {
-            camera.rotation += 0.1;
+            camera.rotation += 0.3;
         }
 
         // drawing final shader pass
