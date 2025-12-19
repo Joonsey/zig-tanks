@@ -9,6 +9,7 @@ pub const Level = struct {
     graphics_texture: rl.Texture,
     normal_texture: rl.Texture,
     intermediate_texture: rl.RenderTexture,
+    shader: rl.Shader,
 
     const Self = @This();
     pub fn init(path: []const u8, allocator: std.mem.Allocator, render_width: i32, render_height: i32) !Self {
@@ -19,6 +20,7 @@ pub const Level = struct {
             .graphics_texture = rl.loadTexture("graphics.png") catch unreachable,
             .intermediate_texture = rl.loadRenderTexture(render_width, render_height) catch unreachable,
             .normal_texture = create_normal(physics_image, allocator),
+            .shader = try rl.loadShader(null, "world_water.glsl"),
         };
     }
 
@@ -71,7 +73,7 @@ pub const Level = struct {
         const f_width: f32 = @floatFromInt(texture.width);
         const f_height: f32 = @floatFromInt(texture.height);
         texture.drawPro(
-            .{ .x = 0, .y = 0, .width = f_width, .height = f_height },
+            .{ .x = 0, .y = 0, .width = f_width, .height = -f_height },
             .{ .x = relative_pos.x, .y = relative_pos.y, .width = f_width, .height = f_height },
             .{ .x = 0, .y = 0 },
             std.math.radiansToDegrees(-camera.rotation),
@@ -82,19 +84,52 @@ pub const Level = struct {
     }
 
     pub fn draw(self: Self, camera: Camera, discreete_render_texture: rl.RenderTexture) void {
-        discreete_render_texture.begin();
-        const relative_pos = camera.get_relative_position(.zero());
-
+        const shader = self.shader;
         const texture = self.graphics_texture;
+
+        const relative_pos = camera.get_relative_position(.zero());
         const f_width: f32 = @floatFromInt(texture.width);
         const f_height: f32 = @floatFromInt(texture.height);
+        self.intermediate_texture.begin();
+        rl.clearBackground(.blank);
         texture.drawPro(
-            .{ .x = 0, .y = 0, .width = f_width, .height = f_height },
+            .{ .x = 0, .y = 0, .width = f_width, .height = -f_height },
             .{ .x = relative_pos.x, .y = relative_pos.y, .width = f_width, .height = f_height },
             .{ .x = 0, .y = 0 },
             std.math.radiansToDegrees(-camera.rotation),
             .white,
         );
+        self.intermediate_texture.end();
+
+        discreete_render_texture.begin();
+        shader.activate();
+        const i_texture = self.intermediate_texture.texture;
+        rl.setShaderValue(shader, rl.getShaderLocation(shader, "u_tex_width"), &i_texture.width, .int);
+        rl.setShaderValue(shader, rl.getShaderLocation(shader, "u_tex_height"), &i_texture.height, .int);
+
+        const camera_rotation = camera.rotation;
+        rl.setShaderValue(shader, rl.getShaderLocation(shader, "u_camera_rotation"), &camera_rotation, .float);
+        const camera_position_x: f32 = camera.position.x;
+        const camera_position_y: f32 = camera.position.y;
+        rl.setShaderValue(shader, rl.getShaderLocation(shader, "u_camera_offset_x"), &camera_position_x, .float);
+        rl.setShaderValue(shader, rl.getShaderLocation(shader, "u_camera_offset_y"), &camera_position_y, .float);
+
+        const camera_screen_offset_x = camera.render_dimensions.x - camera.screen_offset.x;
+        rl.setShaderValue(shader, rl.getShaderLocation(shader, "u_camera_screen_offset_x"), &camera_screen_offset_x, .float);
+        const camera_screen_offset_y = camera.render_dimensions.y - camera.screen_offset.y;
+        rl.setShaderValue(shader, rl.getShaderLocation(shader, "u_camera_screen_offset_y"), &camera_screen_offset_y, .float);
+        rl.setShaderValue(shader, rl.getShaderLocation(shader, "u_time"), &@as(f32, @floatCast(rl.getTime())), .float);
+
+        const if_width: f32 = @floatFromInt(i_texture.width);
+        const if_height: f32 = @floatFromInt(i_texture.height);
+        self.intermediate_texture.texture.drawPro(
+            .{ .x = 0, .y = 0, .width = if_width, .height = -if_height },
+            .{ .x = 0, .y = 0, .width = if_width, .height = if_height },
+            .zero(),
+            0,
+            .white,
+        );
+        shader.deactivate();
         discreete_render_texture.end();
     }
 };
