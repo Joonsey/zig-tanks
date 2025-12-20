@@ -20,7 +20,7 @@ var height_render_texture: rl.RenderTexture = undefined;
 var normal_shader: rl.Shader = undefined;
 var height_shader: rl.Shader = undefined;
 
-pub const Transform = struct {
+pub const Transform = extern struct {
     position: rl.Vector2 = .{ .x = 0, .y = 0 },
     rotation: f32 = 0,
 };
@@ -342,8 +342,8 @@ const EditorUI = struct {
 
 fn draw_ui(ui: *EditorUI, ecs: *ECS) void {
     const width = 120;
+    var i: f32 = 22;
     if (ui.selected_entity) |e| {
-        var i: f32 = 22;
         // transform
         if (ecs.transforms.get(e)) |t| {
             _ = rg.label(.init(20, i, width, 20), "Transform");
@@ -389,6 +389,12 @@ fn draw_ui(ui: *EditorUI, ecs: *ECS) void {
             }
         }
     }
+
+    const num_renderables = ecs.render_rows.items.len;
+    var buff: [64]u8 = undefined;
+    const text = std.fmt.bufPrintZ(&buff, "# renderables: {d}", .{num_renderables}) catch "";
+    _ = rg.label(.init(20, i, width, 20), text);
+    i += 22;
 }
 
 fn handle_input(camera: *Camera, dt: f32) void {
@@ -431,6 +437,76 @@ fn handle_input(camera: *Camera, dt: f32) void {
     camera.target(position);
 }
 
+const MAGIC = 0x4C564C88;
+pub fn save(path: []const u8, ecs: *ECS) !void {
+    const file = try std.fs.cwd().createFile(path, .{});
+    defer file.close();
+
+    var buffer: [1024]u8 = std.mem.zeroes([1024]u8);
+    var writer = std.io.Writer.fixed(&buffer);
+
+    try writer.writeInt(u8, 1, .little);
+    try writer.writeInt(u32, MAGIC, .little);
+
+    const entities = ecs.transforms.dense_entities.items;
+
+    try writer.writeInt(u32, @intCast(entities.len), .little);
+    for (entities) |e| {
+        if (ecs.transforms.get(e)) |t| {
+            try writer.writeInt(u8, 1, .little);
+            try writer.writeStruct(t.*, .little);
+        }
+        if (ecs.ssprite.get(e)) |s| {
+            try writer.writeInt(u8, 2, .little);
+            // TODO
+            _ = s;
+            try writer.writeInt(u32, 0, .little);
+        }
+
+        try writer.writeInt(u8, 0, .little);
+    }
+    _ = try file.write(&buffer);
+}
+
+pub fn load(path: []const u8, ecs: *ECS) !void {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    var buffer: [1024]u8 = std.mem.zeroes([1024]u8);
+    _ = try file.read(&buffer);
+    var reader = std.io.Reader.fixed(&buffer);
+
+    const version = try reader.takeInt(u8, .little);
+    const magic = try reader.takeInt(u32, .little);
+
+    if (version != 1) @panic("TODO");
+    if (magic != MAGIC) @panic("Magic bytes not matching");
+
+    const number_of_entities = try reader.takeInt(u32, .little);
+    for (0..number_of_entities) |_| {
+        const e = ecs.create();
+        var component = try reader.takeInt(u8, .little);
+        while (component > 0) {
+            switch (component) {
+                // transform
+                1 => {
+                    var transform: Transform = undefined;
+                    transform = try reader.takeStruct(Transform, .little);
+                    _ = ecs.transforms.add(e, transform);
+                },
+
+                // ssprite
+                2 => {
+                    _ = try reader.takeInt(u32, .little);
+                    _ = ecs.ssprite.add(e, &assets.LAMP);
+                },
+                else => std.log.warn("got unexpected component id {d}", .{component}),
+            }
+            component = try reader.takeInt(u8, .little);
+        }
+    }
+}
+
 pub fn main() !void {
     rl.setTraceLogLevel(.warning);
     rl.initWindow(window_width, window_height, "test");
@@ -465,37 +541,21 @@ pub fn main() !void {
     normal_shader = try rl.loadShader(null, "normal.glsl");
     height_shader = try rl.loadShader(null, "height.glsl");
 
-    const relative_pos: rl.Vector2 = .{ .x = render_width / 2, .y = render_height / 2 };
-
     var camera: Camera = .init(render_width, render_height);
     camera.position = .init(100, 100);
 
     var ecs = ECS.init(allocator);
     defer ecs.free();
     defer ecs.debug();
-    const item = ecs.create();
-    _ = ecs.transforms.add(item, .{ .position = relative_pos });
-    _ = ecs.ssprite.add(item, &assets.CAR_BASE);
-
-    const item2 = ecs.create();
-    _ = ecs.transforms.add(item2, .{ .position = .zero() });
-    _ = ecs.ssprite.add(item2, &assets.ITEMBOX);
-    _ = ecs.collider.add(item2, .{ .Rectangle = .init(8, 8) });
 
     var lights = LightSystem.init(allocator);
     defer lights.free(allocator);
 
     const lvl = try Level.init("dads", allocator, render_width, render_height);
 
-    for (0..10) |i| {
-        const e = ecs.create();
-        _ = ecs.light.add(e, .{ .color = .yellow, .height = 15 });
-        _ = ecs.transforms.add(e, .{ .position = .{ .x = @floatFromInt(i * 120), .y = 20 } });
-        _ = ecs.ssprite.add(e, &assets.LAMP);
-        _ = ecs.collider.add(e, .{ .Circle = 8 });
-    }
-
     var eui: EditorUI = .{};
+    // try save("level", &ecs);
+    try load("level", &ecs);
 
     while (!rl.windowShouldClose()) {
         const dt = rl.getFrameTime();
@@ -528,6 +588,7 @@ pub fn main() !void {
                 const relative_mouse_position = camera.get_absolute_position(mouse_position);
                 if (relative_mouse_position.distance(t.position) < 8) {
                     eui.selected_entity = ecs.copy(e);
+                    break;
                 }
             };
         }
