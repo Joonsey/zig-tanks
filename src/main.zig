@@ -337,6 +337,7 @@ const Collider = union(enum) {
 
 const EditorUI = struct {
     selected_entity: ?Entity = null,
+    last_added: ?Entity = null,
 };
 
 fn draw_ui(ui: *EditorUI, ecs: *ECS) void {
@@ -476,6 +477,11 @@ pub fn main() !void {
     _ = ecs.transforms.add(item, .{ .position = relative_pos });
     _ = ecs.ssprite.add(item, &assets.CAR_BASE);
 
+    const item2 = ecs.create();
+    _ = ecs.transforms.add(item2, .{ .position = .zero() });
+    _ = ecs.ssprite.add(item2, &assets.ITEMBOX);
+    _ = ecs.collider.add(item2, .{ .Rectangle = .init(8, 8) });
+
     var lights = LightSystem.init(allocator);
     defer lights.free(allocator);
 
@@ -528,14 +534,51 @@ pub fn main() !void {
 
         if (rl.isMouseButtonDown(.right) or rl.isMouseButtonDown(.left)) {
             const mouse_position = rl.getMousePosition().divide(.init(4, 4));
-            const relative_mouse_position = camera.get_absolute_position(mouse_position);
+            const abs_mouse_position = camera.get_absolute_position(mouse_position);
 
+            const mouse_move = ((rl.getMouseDelta().length() > 0) or rl.isKeyPressed(.w) or rl.isKeyPressed(.a) or rl.isKeyPressed(.s) or rl.isKeyPressed(.d));
             if (eui.selected_entity) |e| {
                 if (ecs.transforms.get(e)) |t| {
-                    if (relative_mouse_position.distance(t.position) < 16 and ((rl.getMouseDelta().length() > 0) or rl.isKeyPressed(.w) or rl.isKeyPressed(.a) or rl.isKeyPressed(.s) or rl.isKeyPressed(.d))) {
-                        t.position = relative_mouse_position;
+                    if (abs_mouse_position.distance(t.position) < 16 and mouse_move) {
+                        var anticipated_position = abs_mouse_position;
+                        if (rl.isKeyDown(.left_alt)) {
+                            for (0..ecs.transforms.dense_entities.items.len) |other_entity_index| {
+                                // we iterate in reverse, just so that we are more likely to hit an element we recently introduced.
+                                // It might be unneccessary but at least it feels really quite comfy and it doesn't seem to be fighting over edges
+                                const other_entity = ecs.transforms.dense_entities.items[ecs.transforms.dense_entities.items.len - (other_entity_index + 1)];
+                                if (ecs.transforms.get(other_entity)) |other| {
+                                    if (other == t) continue;
+                                    if (other.position.distance(t.position) > 22) continue;
+                                    const delta_y = @abs(other.position.y - abs_mouse_position.y);
+                                    const delta_x = @abs(other.position.x - abs_mouse_position.x);
+                                    const y_aligned = delta_y < delta_x;
+                                    if (y_aligned) anticipated_position.y = @floor(other.position.y) else anticipated_position.x = @floor(other.position.x);
+
+                                    const pixel_perfect = if (ecs.collider.get(other_entity)) |c| switch (c.*) {
+                                        .Circle => |r| if (y_aligned) @floor(delta_x) == @floor(r * 2) else @floor(delta_y) == @floor(r * 2),
+                                        .Rectangle => |r| if (y_aligned) @floor(delta_x) == @floor(r.x * 2) else @floor(delta_y) == @floor(r.y * 2),
+                                    } else false;
+
+                                    if (pixel_perfect) {
+                                        if (eui.last_added) |le| if (ecs.transforms.get(le)) |last_transform| if (last_transform.position.distance(t.position) < 8) break;
+                                        if (rl.isMouseButtonDown(.left)) eui.selected_entity = null;
+                                        if (rl.isMouseButtonDown(.right)) {
+                                            eui.last_added = ecs.copy(e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        t.position = anticipated_position;
                     }
                 }
+            }
+        }
+
+        if (eui.selected_entity) |e| {
+            if (ecs.transforms.get(e)) |t| {
+                const mouse_wheel_move = rl.getMouseWheelMove() * std.math.pi * 360;
+                t.rotation = @mod(t.rotation + mouse_wheel_move * dt, std.math.pi * 2);
             }
         }
 
