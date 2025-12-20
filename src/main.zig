@@ -356,6 +356,17 @@ fn draw_ui(ui: *EditorUI, ecs: *ECS) void {
             _ = rg.slider(.init(20, i, width, 20), "", "Rotation", &t.rotation, 0, std.math.pi * 2);
             i += 22;
         }
+        // sprite
+        if (ecs.ssprite.get(e)) |s| {
+            _ = rg.label(.init(20, i, width, 20), "Sprite");
+            i += 22;
+            var buff: [64]u8 = undefined;
+            const text = std.fmt.bufPrintZ(&buff, "Asset: {}", .{s.*}) catch "";
+            var sv: f32 = @floatFromInt(@intFromEnum(s.*));
+            _ = rg.slider(.init(20, i, width, 20), "", text, &sv, 0, @typeInfo(assets.Assets).@"enum".fields.len - 1);
+            s.* = @enumFromInt(@as(u32, @intFromFloat(sv)));
+            i += 22;
+        }
         // light
         if (ecs.light.get(e)) |l| {
             _ = rg.label(.init(20, i, width, 20), "Lighting");
@@ -371,6 +382,12 @@ fn draw_ui(ui: *EditorUI, ecs: *ECS) void {
             _ = rg.slider(.init(20, i, width, 20), "", "Radius", &r, 0, 255);
             l.radius = @intFromFloat(r);
             i += 22;
+
+            if (rg.button(.init(20, i, width, 20), "Delete Light")) ecs.light.remove(e);
+            i += 22;
+        } else {
+            if (rg.button(.init(20, i, width, 20), "Add Light")) _ = ecs.light.add(e, .{ .color = .white, .height = 0 });
+            i += 22;
         }
         // collider
         if (ecs.collider.get(e)) |c| {
@@ -382,12 +399,17 @@ fn draw_ui(ui: *EditorUI, ecs: *ECS) void {
                     i += 22;
                 },
                 .Rectangle => |*r| {
-                    _ = rg.slider(.init(20, i, width, 20), "", "X (radius)", &r.x, 0, 255);
+                    _ = rg.slider(.init(20, i, width, 20), "", "X (radius)", &r.x, 0, 32);
                     i += 22;
-                    _ = rg.slider(.init(20, i, width, 20), "", "Y (radius)", &r.y, 0, 255);
+                    _ = rg.slider(.init(20, i, width, 20), "", "Y (radius)", &r.y, 0, 32);
                     i += 22;
                 },
             }
+            if (rg.button(.init(20, i, width, 20), "Delete Collider")) ecs.collider.remove(e);
+            i += 22;
+        } else {
+            if (rg.button(.init(20, i, width, 20), "Add Collider")) _ = ecs.collider.add(e, .{ .Rectangle = .init(8, 8) });
+            i += 22;
         }
     }
 
