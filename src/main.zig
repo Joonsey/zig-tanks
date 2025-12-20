@@ -30,14 +30,14 @@ pub const Transform = extern struct {
 // previous implementation had 60fps @ 1000 entities
 fn draw_system_function(camera: Camera, query: []RenderRow) void {
     discreete_render_texture.begin();
-    for (query) |q| stack_draw(q.sprite.texture, q.transform.rotation - camera.rotation, camera.get_relative_position(q.transform.position));
+    for (query) |q| stack_draw(assets.get(q.sprite).texture, q.transform.rotation - camera.rotation, camera.get_relative_position(q.transform.position));
     discreete_render_texture.end();
 
     normal_render_texture.begin();
     for (query) |q| {
         const position = camera.get_relative_position(q.transform.position);
         const rotation = q.transform.rotation - camera.rotation;
-        const s = q.sprite;
+        const s = assets.get(q.sprite);
         normal_shader.activate();
         // passing in absolute 'rotation'
         // I think this is correct, it's world space rotation, it looks right!
@@ -123,12 +123,12 @@ const MAX_ENTITY_COUNT = 10000;
 const RenderRow = struct {
     entity: Entity,
     transform: *Transform,
-    sprite: *assets.SSprite,
+    sprite: assets.Assets,
 };
 
 const ECS = struct {
     transforms: SparseSet(Transform),
-    ssprite: SparseSet(*assets.SSprite),
+    ssprite: SparseSet(assets.Assets),
     light: SparseSet(Light),
     collider: SparseSet(Collider),
 
@@ -184,7 +184,7 @@ const ECS = struct {
         self.collider.remove(e);
     }
 
-    fn query_render_rows(camera: Camera, transforms: *SparseSet(Transform), sprites: *SparseSet(*assets.SSprite), out: *std.ArrayList(RenderRow)) void {
+    fn query_render_rows(camera: Camera, transforms: *SparseSet(Transform), sprites: *SparseSet(assets.Assets), out: *std.ArrayList(RenderRow)) void {
         out.clearRetainingCapacity();
 
         for (sprites.dense_entities.items, 0..) |e, i| {
@@ -229,10 +229,11 @@ const ECS = struct {
         std.log.debug("ECS DEBUG START", .{});
         for (0..self.next) |ue| {
             const e: Entity = @intCast(ue);
-            std.log.debug("{?} | {?} | {?*}", .{
+            std.log.debug("{?} | {?} | {?} | {?}", .{
                 self.transforms.get(e),
                 self.light.get(e),
-                if (self.ssprite.get(e)) |s| s.* else null,
+                self.ssprite.get(e),
+                self.collider.get(e),
             });
         }
         std.log.debug("number of renderables last frame: {d}", .{self.render_rows.items.len});
@@ -266,7 +267,7 @@ fn order_by_camera_position(camera: Camera, lhs: RenderRow, rhs: RenderRow) bool
     return rhs_relative_position.y > lhs_relative_position.y;
 }
 
-const Light = struct {
+const Light = extern struct {
     height: u8,
     radius: u8 = 120,
     color: rl.Color,
@@ -458,14 +459,30 @@ pub fn save(path: []const u8, ecs: *ECS) !void {
         }
         if (ecs.ssprite.get(e)) |s| {
             try writer.writeInt(u8, 2, .little);
-            // TODO
-            _ = s;
-            try writer.writeInt(u32, 0, .little);
+            try writer.writeInt(u32, @intFromEnum(s.*), .little);
+        }
+        if (ecs.light.get(e)) |l| {
+            try writer.writeInt(u8, 3, .little);
+            try writer.writeStruct(l.*, .little);
+        }
+        if (ecs.collider.get(e)) |c| {
+            try writer.writeInt(u8, 4, .little);
+            switch (c.*) {
+                .Circle => |r| {
+                    try writer.writeInt(u8, 1, .little);
+                    const bits: u32 = @bitCast(r);
+                    try writer.writeInt(u32, bits, .little);
+                },
+                .Rectangle => |r| {
+                    try writer.writeInt(u8, 2, .little);
+                    try writer.writeStruct(r, .little);
+                },
+            }
         }
 
         try writer.writeInt(u8, 0, .little);
     }
-    _ = try file.write(&buffer);
+    _ = try file.write(buffer[0..writer.end]);
 }
 
 pub fn load(path: []const u8, ecs: *ECS) !void {
@@ -489,16 +506,21 @@ pub fn load(path: []const u8, ecs: *ECS) !void {
         while (component > 0) {
             switch (component) {
                 // transform
-                1 => {
-                    var transform: Transform = undefined;
-                    transform = try reader.takeStruct(Transform, .little);
-                    _ = ecs.transforms.add(e, transform);
-                },
-
+                1 => _ = ecs.transforms.add(e, try reader.takeStruct(Transform, .little)),
                 // ssprite
                 2 => {
-                    _ = try reader.takeInt(u32, .little);
-                    _ = ecs.ssprite.add(e, &assets.LAMP);
+                    const s = try reader.takeInt(u32, .little);
+                    _ = ecs.ssprite.add(e, @enumFromInt(s));
+                },
+                // light
+                3 => _ = ecs.light.add(e, try reader.takeStruct(Light, .little)),
+                4 => {
+                    const r = try reader.takeInt(u8, .little);
+                    switch (r) {
+                        1 => _ = ecs.collider.add(e, .{ .Circle = @bitCast(try reader.takeInt(u32, .little)) }),
+                        2 => _ = ecs.collider.add(e, .{ .Rectangle = try reader.takeStruct(rl.Vector2, .little) }),
+                        else => std.log.warn("got unexpected collider id {d}", .{r}),
+                    }
                 },
                 else => std.log.warn("got unexpected component id {d}", .{component}),
             }
@@ -516,14 +538,13 @@ pub fn main() !void {
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-
-    try assets.init(allocator);
-    defer assets.free(allocator);
-
     defer switch (gpa.deinit()) {
         .leak => std.log.err("memory leaks detected!", .{}),
         .ok => std.log.info("no memory leaks detected :)", .{}),
     };
+
+    try assets.init(allocator);
+    defer assets.free(allocator);
 
     // debug rendering mode
     // could be typed as an enum but can't be bothered right now
@@ -554,7 +575,6 @@ pub fn main() !void {
     const lvl = try Level.init("dads", allocator, render_width, render_height);
 
     var eui: EditorUI = .{};
-    // try save("level", &ecs);
     try load("level", &ecs);
 
     while (!rl.windowShouldClose()) {
@@ -647,6 +667,8 @@ pub fn main() !void {
             if (eui.selected_entity) |e| ecs.destroy(e);
             eui.selected_entity = null;
         }
+
+        if (rl.isKeyPressed(.s) and rl.isKeyDown(.left_control)) _ = try save("level", &ecs);
 
         rl.beginDrawing();
         rl.clearBackground(.blank);

@@ -176,18 +176,26 @@ pub const SSprite = struct {
     }
 };
 
-pub var CAR_BASE: SSprite = undefined;
-pub var FENCE_0: SSprite = undefined;
-pub var ITEMBOX: SSprite = undefined;
-pub var LAMP: SSprite = undefined;
+pub const Assets = enum(u32) {
+    CAR_BASE,
+    FENCE_0,
+    ITEMBOX,
+    LAMP,
+};
+
+var assets: std.ArrayList(SSprite) = .{};
 
 pub fn init(allocator: std.mem.Allocator) !void {
-    CAR_BASE = try .init("car_base.png", allocator);
-    FENCE_0 = try .init("fence-0.png", allocator);
-    ITEMBOX = try .init("itembox.png", allocator);
-    LAMP = try .init("lamp.png", allocator);
+    try assets.append(allocator, try .init("car_base.png", allocator));
+    try assets.append(allocator, try .init("fence-0.png", allocator));
+    try assets.append(allocator, try .init("itembox.png", allocator));
+    try assets.append(allocator, try .init("lamp.png", allocator));
 }
 
 pub fn free(allocator: std.mem.Allocator) void {
-    _ = allocator;
+    assets.clearAndFree(allocator);
+}
+
+pub fn get(a: Assets) *SSprite {
+    return &assets.items[@intFromEnum(a)];
 }
