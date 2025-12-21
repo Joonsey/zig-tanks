@@ -5,7 +5,6 @@ out vec4 finalColor;
 
 uniform sampler2D texture0;
 uniform sampler2D normal;
-uniform sampler2D height;
 
 uniform int debug_mode = 0;
 
@@ -38,7 +37,7 @@ void main() {
 		// so i changed the direction formula and this is magically just better
 
 		lp.y = 1 - lp.y;
-		vec3 to_light =  vec3(uv, texture(height, uv)) - vec3(lp, lights[i].height);
+		vec3 to_light =  vec3(uv, 0) - vec3(lp, lights[i].height);
 	    vec3 light_dir = normalize(vec3(to_light.x, -to_light.y, -to_light.z));
 
 		float ndotl = max(dot(n, light_dir), 0.0);
@@ -51,7 +50,6 @@ void main() {
 
 	finalColor = vec4(color.rgb * clamp(lighting, ambiance, 1.0), color.a);
 	if (debug_mode == 1) finalColor = vec4(texture(normal, uv).rgb, 1);
-	if (debug_mode == 2) finalColor = vec4(texture(height, uv).rgb, 1);
 	if (debug_mode == 3) finalColor = vec4(texture(texture0, uv).rgb, 1);
 }
 
