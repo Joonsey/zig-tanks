@@ -1,6 +1,10 @@
 const std = @import("std");
 const rl = @import("raylib");
 
+const consts = @import("consts.zig");
+const render_width = consts.render_width;
+const render_height = consts.render_height;
+
 pub const Camera = struct {
     position: rl.Vector2,
     screen_offset: rl.Vector2,
@@ -8,7 +12,7 @@ pub const Camera = struct {
     rotation: f32,
 
     const Self = @This();
-    pub fn init(render_width: f32, render_height: f32) Self {
+    pub fn init() Self {
         return .{
             .position = .{ .x = 0, .y = 0 },
             .screen_offset = .{ .x = render_width / 2, .y = render_height * 0.8 },

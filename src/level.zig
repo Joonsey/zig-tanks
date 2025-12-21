@@ -4,6 +4,10 @@ const rl = @import("raylib");
 const assets = @import("assets.zig");
 const Camera = @import("camera.zig").Camera;
 
+const consts = @import("consts.zig");
+const render_width = consts.render_width;
+const render_height = consts.render_height;
+
 pub const Level = struct {
     physics_image: rl.Image,
     graphics_texture: rl.Texture,
@@ -12,7 +16,7 @@ pub const Level = struct {
     shader: rl.Shader,
 
     const Self = @This();
-    pub fn init(comptime path: []const u8, allocator: std.mem.Allocator, render_width: i32, render_height: i32) !Self {
+    pub fn init(comptime path: []const u8, allocator: std.mem.Allocator) !Self {
         // TODO
         // redo this path shit
         // it should route a directory i think instead
@@ -141,8 +145,8 @@ pub const Levels = enum(u32) { DEMO };
 
 pub var levels: std.EnumArray(Levels, Level) = undefined;
 
-pub fn init(allocator: std.mem.Allocator, render_width: i32, render_height: i32) !void {
-    levels.set(.DEMO, try .init("graphics", allocator, render_width, render_height));
+pub fn init(allocator: std.mem.Allocator) !void {
+    levels.set(.DEMO, try .init("graphics", allocator));
 }
 
 pub fn free(allocator: std.mem.Allocator) void {

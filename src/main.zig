@@ -6,433 +6,27 @@ const assets = @import("assets.zig");
 const levels = @import("level.zig");
 
 const Camera = @import("camera.zig").Camera;
+const Entity = @import("entity.zig").Entity;
+const RenderRow = @import("entity.zig").RenderRow;
+const ECS = @import("entity.zig").ECS;
+const LightSystem = @import("entity.zig").LightSystem;
+const RenderSystem = @import("render.zig").RenderSystem;
 
-const window_height = 720;
-const window_width = 1080;
+const consts = @import("consts.zig");
+const render_width = consts.render_width;
+const render_height = consts.render_height;
 
-const render_height = window_height / 4;
-const render_width = window_width / 4;
-
-var discreete_render_texture: rl.RenderTexture = undefined;
-var normal_render_texture: rl.RenderTexture = undefined;
-var height_render_texture: rl.RenderTexture = undefined;
+const window_width = consts.window_width;
+const window_height = consts.window_height;
 
 var normal_shader: rl.Shader = undefined;
-var height_shader: rl.Shader = undefined;
-
-pub const Transform = extern struct {
-    position: rl.Vector2 = .{ .x = 0, .y = 0 },
-    rotation: f32 = 0,
-};
-
-// this is much more performant than the previous implement
-// leaving it currently at 150fps @ 1000 entities
-// previous implementation had 60fps @ 1000 entities
-fn draw_system_function(camera: Camera, query: []RenderRow) void {
-    discreete_render_texture.begin();
-    for (query) |q| stack_draw(assets.get(q.sprite).texture, q.transform.rotation - camera.rotation, camera.get_relative_position(q.transform.position));
-    discreete_render_texture.end();
-
-    normal_render_texture.begin();
-    for (query) |q| {
-        const position = camera.get_relative_position(q.transform.position);
-        const rotation = q.transform.rotation - camera.rotation;
-        const s = assets.get(q.sprite);
-        normal_shader.activate();
-        // passing in absolute 'rotation'
-        // I think this is correct, it's world space rotation, it looks right!
-        rl.setShaderValue(normal_shader, rl.getShaderLocation(normal_shader, "rotation"), &rotation, .float);
-        stack_draw(s.normals, rotation, position);
-        normal_shader.deactivate();
-    }
-    normal_render_texture.end();
-}
-
-pub const Entity = u32;
-
-pub fn SparseSet(comptime T: type) type {
-    return struct {
-        dense_entities: std.ArrayList(Entity),
-        dense: std.ArrayList(T),
-        sparse: []usize,
-
-        const invalid = std.math.maxInt(usize);
-
-        pub fn init(
-            allocator: std.mem.Allocator,
-            max_entities: usize,
-        ) @This() {
-            const sparse = allocator.alloc(usize, max_entities) catch unreachable;
-            @memset(sparse, invalid);
-
-            return .{
-                .dense_entities = std.ArrayList(Entity).initCapacity(allocator, max_entities) catch unreachable,
-                .dense = std.ArrayList(T).initCapacity(allocator, max_entities) catch unreachable,
-                .sparse = sparse,
-            };
-        }
-
-        pub fn add(self: *@This(), e: Entity, value: T) *T {
-            const idx = self.dense.items.len;
-            self.sparse[e] = idx;
-
-            self.dense_entities.appendAssumeCapacity(e);
-            self.dense.appendAssumeCapacity(value);
-
-            return &self.dense.items[idx];
-        }
-
-        pub fn remove(self: *@This(), e: Entity) void {
-            const idx = self.sparse[e];
-            if (idx == invalid) return;
-
-            const last = self.dense.items.len - 1;
-
-            if (idx != last) {
-                self.dense.items[idx] = self.dense.items[last];
-                const moved = self.dense_entities.items[last];
-                self.dense_entities.items[idx] = moved;
-                self.sparse[moved] = idx;
-            }
-
-            _ = self.dense.pop();
-            _ = self.dense_entities.pop();
-            self.sparse[e] = invalid;
-        }
-
-        pub fn has(self: *@This(), e: Entity) bool {
-            return self.sparse[e] != invalid;
-        }
-
-        pub fn get(self: *@This(), e: Entity) ?*T {
-            const idx = self.sparse[e];
-            if (idx == invalid) return null;
-            return &self.dense.items[idx];
-        }
-
-        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-            self.dense_entities.deinit(allocator);
-            self.dense.deinit(allocator);
-            allocator.free(self.sparse);
-        }
-    };
-}
-
-const MAX_ENTITY_COUNT = 10000;
-
-const RenderRow = struct {
-    entity: Entity,
-    transform: *Transform,
-    sprite: assets.Assets,
-};
-
-const ECS = struct {
-    transforms: SparseSet(Transform),
-    ssprite: SparseSet(assets.Assets),
-    light: SparseSet(Light),
-    collider: SparseSet(Collider),
-
-    render_rows: std.ArrayList(RenderRow),
-
-    next: Entity = 0,
-    free_entities: std.ArrayList(Entity),
-
-    allocator: std.mem.Allocator,
-
-    const Self = @This();
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return .{
-            .transforms = .init(allocator, MAX_ENTITY_COUNT),
-            .ssprite = .init(allocator, MAX_ENTITY_COUNT),
-            .light = .init(allocator, MAX_ENTITY_COUNT),
-            .collider = .init(allocator, MAX_ENTITY_COUNT),
-
-            .render_rows = std.ArrayList(RenderRow).initCapacity(allocator, MAX_ENTITY_COUNT) catch unreachable,
-
-            .free_entities = std.ArrayList(Entity).initCapacity(allocator, MAX_ENTITY_COUNT) catch unreachable,
-            .allocator = allocator,
-        };
-    }
-
-    pub fn create(self: *Self) Entity {
-        if (self.free_entities.items.len > 0) {
-            return self.free_entities.pop().?;
-        }
-        const id = self.next;
-        self.next += 1;
-        return id;
-    }
-
-    pub fn copy(self: *Self, e: Entity) Entity {
-        const ne = self.create();
-
-        if (self.light.get(e)) |l| _ = self.light.add(ne, l.*);
-        if (self.transforms.get(e)) |l| _ = self.transforms.add(ne, l.*);
-        if (self.ssprite.get(e)) |l| _ = self.ssprite.add(ne, l.*);
-        if (self.collider.get(e)) |l| _ = self.collider.add(ne, l.*);
-
-        return ne;
-    }
-
-    pub fn destroy(self: *Self, e: Entity) void {
-        // TODO guarantee capacity
-        self.free_entities.appendAssumeCapacity(e);
-
-        self.light.remove(e);
-        self.transforms.remove(e);
-        self.ssprite.remove(e);
-        self.collider.remove(e);
-    }
-
-    fn query_render_rows(camera: Camera, transforms: *SparseSet(Transform), sprites: *SparseSet(assets.Assets), out: *std.ArrayList(RenderRow)) void {
-        out.clearRetainingCapacity();
-
-        for (sprites.dense_entities.items, 0..) |e, i| {
-            if (transforms.get(e)) |t| {
-                // TODO guarantee capacity
-                if (!camera.is_out_of_bounds(t.position)) out.appendAssumeCapacity(.{ .entity = e, .transform = t, .sprite = sprites.dense.items[i] });
-            }
-        }
-    }
-
-    pub fn query_light_rows(camera: Camera, transforms: *SparseSet(Transform), lights: *SparseSet(Light), out: *std.ArrayList(LightRow)) void {
-        out.clearRetainingCapacity();
-
-        for (lights.dense_entities.items, 0..) |e, i| {
-            if (transforms.get(e)) |t| {
-                // TODO guarantee capacity
-                if (!camera.is_out_of_bounds(t.position)) out.appendAssumeCapacity(.{ .entity = e, .transform = t, .light = &lights.dense.items[i] });
-            }
-        }
-    }
-
-    pub fn render(self: *Self, camera: Camera) void {
-        // TODO implement the 'S' part of the ECS
-        // would be sick if we could reflect on the parameters and add them dynamically
-        query_render_rows(camera, &self.transforms, &self.ssprite, &self.render_rows);
-
-        std.mem.sort(RenderRow, self.render_rows.items, camera, order_by_camera_position);
-        draw_system_function(camera, self.render_rows.items);
-    }
-
-    pub fn free(self: *Self) void {
-        self.ssprite.deinit(self.allocator);
-        self.transforms.deinit(self.allocator);
-        self.light.deinit(self.allocator);
-        self.collider.deinit(self.allocator);
-
-        self.render_rows.clearAndFree(self.allocator);
-        self.free_entities.clearAndFree(self.allocator);
-    }
-
-    pub fn debug(self: *Self) void {
-        std.log.debug("ECS DEBUG START", .{});
-        for (0..self.next) |ue| {
-            const e: Entity = @intCast(ue);
-            std.log.debug("{?} | {?} | {?} | {?}", .{
-                self.transforms.get(e),
-                self.light.get(e),
-                self.ssprite.get(e),
-                self.collider.get(e),
-            });
-        }
-        std.log.debug("number of renderables last frame: {d}", .{self.render_rows.items.len});
-    }
-
-    const MAGIC = 0x4C564C88;
-    pub fn load(self: *Self, path: []const u8) !void {
-        const file = try std.fs.cwd().openFile(path, .{});
-        defer file.close();
-
-        var buffer: [1024]u8 = std.mem.zeroes([1024]u8);
-        _ = try file.read(&buffer);
-        var reader = std.io.Reader.fixed(&buffer);
-
-        const version = try reader.takeInt(u8, .little);
-        const magic = try reader.takeInt(u32, .little);
-
-        if (version != 1) @panic("TODO");
-        if (magic != MAGIC) @panic("Magic bytes not matching");
-
-        const number_of_entities = try reader.takeInt(u32, .little);
-        for (0..number_of_entities) |_| {
-            const e = self.create();
-            var component = try reader.takeInt(u8, .little);
-            while (component > 0) {
-                switch (component) {
-                    // transform
-                    1 => _ = self.transforms.add(e, try reader.takeStruct(Transform, .little)),
-                    // ssprite
-                    2 => {
-                        const s = try reader.takeInt(u32, .little);
-                        _ = self.ssprite.add(e, @enumFromInt(s));
-                    },
-                    // light
-                    3 => _ = self.light.add(e, try reader.takeStruct(Light, .little)),
-                    4 => {
-                        const r = try reader.takeInt(u8, .little);
-                        switch (r) {
-                            1 => _ = self.collider.add(e, .{ .Circle = @bitCast(try reader.takeInt(u32, .little)) }),
-                            2 => _ = self.collider.add(e, .{ .Rectangle = try reader.takeStruct(rl.Vector2, .little) }),
-                            else => std.log.warn("got unexpected collider id {d}", .{r}),
-                        }
-                    },
-                    else => std.log.warn("got unexpected component id {d}", .{component}),
-                }
-                component = try reader.takeInt(u8, .little);
-            }
-        }
-    }
-
-    pub fn save(self: *Self, path: []const u8) !void {
-        const file = try std.fs.cwd().createFile(path, .{});
-        defer file.close();
-
-        var buffer: [1024]u8 = std.mem.zeroes([1024]u8);
-        var writer = std.io.Writer.fixed(&buffer);
-
-        try writer.writeInt(u8, 1, .little);
-        try writer.writeInt(u32, MAGIC, .little);
-
-        const entities = self.transforms.dense_entities.items;
-
-        try writer.writeInt(u32, @intCast(entities.len), .little);
-        for (entities) |e| {
-            if (self.transforms.get(e)) |t| {
-                try writer.writeInt(u8, 1, .little);
-                try writer.writeStruct(t.*, .little);
-            }
-            if (self.ssprite.get(e)) |s| {
-                try writer.writeInt(u8, 2, .little);
-                try writer.writeInt(u32, @intFromEnum(s.*), .little);
-            }
-            if (self.light.get(e)) |l| {
-                try writer.writeInt(u8, 3, .little);
-                try writer.writeStruct(l.*, .little);
-            }
-            if (self.collider.get(e)) |c| {
-                try writer.writeInt(u8, 4, .little);
-                switch (c.*) {
-                    .Circle => |r| {
-                        try writer.writeInt(u8, 1, .little);
-                        const bits: u32 = @bitCast(r);
-                        try writer.writeInt(u32, bits, .little);
-                    },
-                    .Rectangle => |r| {
-                        try writer.writeInt(u8, 2, .little);
-                        try writer.writeStruct(r, .little);
-                    },
-                }
-            }
-
-            try writer.writeInt(u8, 0, .little);
-        }
-        _ = try file.write(buffer[0..writer.end]);
-    }
-};
-
-fn stack_draw(texture: rl.Texture, rotation: f32, position: rl.Vector2) void {
-    const width = texture.width;
-    const rows: usize = @intCast(@divTrunc(texture.height, width));
-    const f_width: f32 = @floatFromInt(width);
-    for (0..rows) |i| {
-        const f_inverse_i: f32 = @floatFromInt(rows - (i + 1));
-        const f_i: f32 = @floatFromInt(i);
-        texture.drawPro(
-            .{ .x = 0, .y = f_inverse_i * f_width, .width = f_width, .height = f_width },
-            .{ .x = position.x, .y = position.y - f_i, .width = f_width, .height = f_width },
-            .{ .x = f_width / 2, .y = f_width / 2 },
-            std.math.radiansToDegrees(rotation),
-            .white,
-        );
-    }
-}
-
-fn order_by_camera_position(camera: Camera, lhs: RenderRow, rhs: RenderRow) bool {
-    const abs_position = lhs.transform.position;
-    const lhs_relative_position = camera.get_relative_position(abs_position);
-
-    const rhs_abs_position = rhs.transform.position;
-    const rhs_relative_position = camera.get_relative_position(rhs_abs_position);
-
-    return rhs_relative_position.y > lhs_relative_position.y;
-}
-
-const Light = extern struct {
-    height: u8,
-    radius: u8 = 120,
-    color: rl.Color,
-};
-
-const LightRow = struct {
-    entity: Entity,
-    light: *Light,
-    transform: *Transform,
-};
-
-const LightSystem = struct {
-    arr: std.ArrayList(LightRow),
-
-    const Self = @This();
-
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return .{ .arr = std.ArrayList(LightRow).initCapacity(allocator, 25) catch unreachable };
-    }
-
-    /// this function presumes that the shader is activated
-    pub fn update_shader_values(self: *Self, camera: Camera, shader: rl.Shader, ecs: *ECS) void {
-        ECS.query_light_rows(camera, &ecs.transforms, &ecs.light, &self.arr);
-        for (self.arr.items, 0..) |lr, i| {
-            const transform = lr.transform;
-            const light = lr.light;
-            rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].position", .{i})), &camera.get_relative_position(transform.position).divide(.init(render_width, render_height)), .vec2);
-
-            const height: f32 = @as(f32, @floatFromInt(light.height)) / 255.0;
-            rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].height", .{i})), &height, .float);
-
-            const radius: f32 = @as(f32, @floatFromInt(light.radius)) / 255.0;
-            rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].radius", .{i})), &radius, .float);
-
-            var color: rl.Vector3 = .{
-                .x = @as(f32, @floatFromInt(light.color.r)) / 255.0,
-                .y = @as(f32, @floatFromInt(light.color.g)) / 255.0,
-                .z = @as(f32, @floatFromInt(light.color.b)) / 255.0,
-            };
-            color = color.scale(@as(f32, @floatFromInt(light.color.a)) / 255.0);
-            rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].color", .{i})), &color, .vec3);
-        }
-        rl.setShaderValue(shader, rl.getShaderLocation(shader, "light_count"), &self.arr.items.len, .int);
-    }
-
-    pub fn draw_debug(self: Self, camera: Camera) void {
-        discreete_render_texture.begin();
-        for (self.arr.items) |light| {
-            rl.drawCircleV(camera.get_relative_position(light.position), 8, light.color);
-        }
-        discreete_render_texture.end();
-    }
-
-    pub fn free(self: *Self, allocator: std.mem.Allocator) void {
-        self.arr.clearAndFree(allocator);
-    }
-};
-
-// Collisions are always around the center position of the object
-// i am opting to do this because we don't need the 'position' from raylib
-// aditionaly they need to be fine-tuned as they need to be rotated and i don't think a simple AABB
-// rotation will suffice for rectangular collisions.
-// in the instance for Rectangle, the X and Y are in radius, not diameter. Along each axis.
-const Collider = union(enum) {
-    Circle: f32,
-    Rectangle: rl.Vector2,
-};
 
 const EditorUI = struct {
     selected_entity: ?Entity = null,
     last_added: ?Entity = null,
 };
 
-fn draw_ui(ui: *EditorUI, ecs: *ECS) void {
+fn draw_ui(ui: *EditorUI, ecs: *ECS, renders: RenderSystem) void {
     const width = 120;
     var i: f32 = 22;
     if (ui.selected_entity) |e| {
@@ -504,7 +98,7 @@ fn draw_ui(ui: *EditorUI, ecs: *ECS) void {
         }
     }
 
-    const num_renderables = ecs.render_rows.items.len;
+    const num_renderables = renders.render_rows.items.len;
     var buff: [64]u8 = undefined;
     const text = std.fmt.bufPrintZ(&buff, "# renderables: {d}", .{num_renderables}) catch "";
     _ = rg.label(.init(20, i, width, 20), text);
@@ -576,15 +170,9 @@ pub fn main() !void {
     // 3 Discreet
     var debug_mode: i32 = 0;
 
-    discreete_render_texture = try rl.loadRenderTexture(render_width, render_height);
-    normal_render_texture = try rl.loadRenderTexture(render_width, render_height);
-    height_render_texture = try rl.loadRenderTexture(render_width, render_height);
-
     const shader = try rl.loadShader(null, "shader.glsl");
-    normal_shader = try rl.loadShader(null, "normal.glsl");
-    height_shader = try rl.loadShader(null, "height.glsl");
 
-    var camera: Camera = .init(render_width, render_height);
+    var camera: Camera = .init();
     camera.position = .init(100, 100);
 
     var ecs = ECS.init(allocator);
@@ -594,7 +182,12 @@ pub fn main() !void {
     var lights = LightSystem.init(allocator);
     defer lights.free(allocator);
 
-    try levels.init(allocator, render_width, render_height);
+    var renders = try RenderSystem.init(allocator, &camera);
+    defer renders.free(allocator);
+
+    ecs.add_system(.{ .ctx = &renders, .update_fn = &RenderSystem.update });
+
+    try levels.init(allocator);
     defer levels.free(allocator);
 
     const lvl = levels.get(.DEMO);
@@ -603,9 +196,10 @@ pub fn main() !void {
 
     while (!rl.windowShouldClose()) {
         const dt = rl.getFrameTime();
-        lvl.draw_normals(camera, normal_render_texture);
-        lvl.draw(camera, discreete_render_texture);
-        ecs.render(camera);
+        lvl.draw_normals(camera, renders.normal_render_texture);
+        lvl.draw(camera, renders.discreete_render_texture);
+
+        ecs.update();
 
         if (rl.isKeyPressed(.n)) {
             debug_mode = @mod(1 + debug_mode, 4); // 4 is max debug modes
@@ -699,10 +293,9 @@ pub fn main() !void {
 
         shader.activate();
         lights.update_shader_values(camera, shader, &ecs);
-        rl.setShaderValueTexture(shader, rl.getShaderLocation(shader, "normal"), normal_render_texture.texture);
-        rl.setShaderValueTexture(shader, rl.getShaderLocation(shader, "height"), height_render_texture.texture);
+        rl.setShaderValueTexture(shader, rl.getShaderLocation(shader, "normal"), renders.normal_render_texture.texture);
         rl.setShaderValue(shader, rl.getShaderLocation(shader, "debug_mode"), &debug_mode, .int);
-        rl.drawTexturePro(discreete_render_texture.texture, .{
+        rl.drawTexturePro(renders.discreete_render_texture.texture, .{
             .x = 0,
             .y = 0,
             .width = @floatFromInt(render_width),
@@ -723,20 +316,9 @@ pub fn main() !void {
             3 => rl.drawText("discreet", 0, 20, 50, .white),
             else => {},
         }
-        draw_ui(&eui, &ecs);
+        draw_ui(&eui, &ecs, renders);
         rl.endDrawing();
 
-        // cleaning up render textures
-        discreete_render_texture.begin();
-        rl.clearBackground(.blank);
-        discreete_render_texture.end();
-
-        normal_render_texture.begin();
-        rl.clearBackground(.blank);
-        normal_render_texture.end();
-
-        height_render_texture.begin();
-        rl.clearBackground(.blank);
-        height_render_texture.end();
+        renders.clean();
     }
 }
