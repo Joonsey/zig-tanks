@@ -3,7 +3,7 @@ const rl = @import("raylib");
 const rg = @import("raygui");
 
 const assets = @import("assets.zig");
-const Level = @import("level.zig").Level;
+const levels = @import("level.zig");
 
 const Camera = @import("camera.zig").Camera;
 
@@ -238,6 +238,97 @@ const ECS = struct {
         }
         std.log.debug("number of renderables last frame: {d}", .{self.render_rows.items.len});
     }
+
+    const MAGIC = 0x4C564C88;
+    pub fn load(self: *Self, path: []const u8) !void {
+        const file = try std.fs.cwd().openFile(path, .{});
+        defer file.close();
+
+        var buffer: [1024]u8 = std.mem.zeroes([1024]u8);
+        _ = try file.read(&buffer);
+        var reader = std.io.Reader.fixed(&buffer);
+
+        const version = try reader.takeInt(u8, .little);
+        const magic = try reader.takeInt(u32, .little);
+
+        if (version != 1) @panic("TODO");
+        if (magic != MAGIC) @panic("Magic bytes not matching");
+
+        const number_of_entities = try reader.takeInt(u32, .little);
+        for (0..number_of_entities) |_| {
+            const e = self.create();
+            var component = try reader.takeInt(u8, .little);
+            while (component > 0) {
+                switch (component) {
+                    // transform
+                    1 => _ = self.transforms.add(e, try reader.takeStruct(Transform, .little)),
+                    // ssprite
+                    2 => {
+                        const s = try reader.takeInt(u32, .little);
+                        _ = self.ssprite.add(e, @enumFromInt(s));
+                    },
+                    // light
+                    3 => _ = self.light.add(e, try reader.takeStruct(Light, .little)),
+                    4 => {
+                        const r = try reader.takeInt(u8, .little);
+                        switch (r) {
+                            1 => _ = self.collider.add(e, .{ .Circle = @bitCast(try reader.takeInt(u32, .little)) }),
+                            2 => _ = self.collider.add(e, .{ .Rectangle = try reader.takeStruct(rl.Vector2, .little) }),
+                            else => std.log.warn("got unexpected collider id {d}", .{r}),
+                        }
+                    },
+                    else => std.log.warn("got unexpected component id {d}", .{component}),
+                }
+                component = try reader.takeInt(u8, .little);
+            }
+        }
+    }
+
+    pub fn save(self: *Self, path: []const u8) !void {
+        const file = try std.fs.cwd().createFile(path, .{});
+        defer file.close();
+
+        var buffer: [1024]u8 = std.mem.zeroes([1024]u8);
+        var writer = std.io.Writer.fixed(&buffer);
+
+        try writer.writeInt(u8, 1, .little);
+        try writer.writeInt(u32, MAGIC, .little);
+
+        const entities = self.transforms.dense_entities.items;
+
+        try writer.writeInt(u32, @intCast(entities.len), .little);
+        for (entities) |e| {
+            if (self.transforms.get(e)) |t| {
+                try writer.writeInt(u8, 1, .little);
+                try writer.writeStruct(t.*, .little);
+            }
+            if (self.ssprite.get(e)) |s| {
+                try writer.writeInt(u8, 2, .little);
+                try writer.writeInt(u32, @intFromEnum(s.*), .little);
+            }
+            if (self.light.get(e)) |l| {
+                try writer.writeInt(u8, 3, .little);
+                try writer.writeStruct(l.*, .little);
+            }
+            if (self.collider.get(e)) |c| {
+                try writer.writeInt(u8, 4, .little);
+                switch (c.*) {
+                    .Circle => |r| {
+                        try writer.writeInt(u8, 1, .little);
+                        const bits: u32 = @bitCast(r);
+                        try writer.writeInt(u32, bits, .little);
+                    },
+                    .Rectangle => |r| {
+                        try writer.writeInt(u8, 2, .little);
+                        try writer.writeStruct(r, .little);
+                    },
+                }
+            }
+
+            try writer.writeInt(u8, 0, .little);
+        }
+        _ = try file.write(buffer[0..writer.end]);
+    }
 };
 
 fn stack_draw(texture: rl.Texture, rotation: f32, position: rl.Vector2) void {
@@ -460,97 +551,6 @@ fn handle_input(camera: *Camera, dt: f32) void {
     camera.target(position);
 }
 
-const MAGIC = 0x4C564C88;
-pub fn save(path: []const u8, ecs: *ECS) !void {
-    const file = try std.fs.cwd().createFile(path, .{});
-    defer file.close();
-
-    var buffer: [1024]u8 = std.mem.zeroes([1024]u8);
-    var writer = std.io.Writer.fixed(&buffer);
-
-    try writer.writeInt(u8, 1, .little);
-    try writer.writeInt(u32, MAGIC, .little);
-
-    const entities = ecs.transforms.dense_entities.items;
-
-    try writer.writeInt(u32, @intCast(entities.len), .little);
-    for (entities) |e| {
-        if (ecs.transforms.get(e)) |t| {
-            try writer.writeInt(u8, 1, .little);
-            try writer.writeStruct(t.*, .little);
-        }
-        if (ecs.ssprite.get(e)) |s| {
-            try writer.writeInt(u8, 2, .little);
-            try writer.writeInt(u32, @intFromEnum(s.*), .little);
-        }
-        if (ecs.light.get(e)) |l| {
-            try writer.writeInt(u8, 3, .little);
-            try writer.writeStruct(l.*, .little);
-        }
-        if (ecs.collider.get(e)) |c| {
-            try writer.writeInt(u8, 4, .little);
-            switch (c.*) {
-                .Circle => |r| {
-                    try writer.writeInt(u8, 1, .little);
-                    const bits: u32 = @bitCast(r);
-                    try writer.writeInt(u32, bits, .little);
-                },
-                .Rectangle => |r| {
-                    try writer.writeInt(u8, 2, .little);
-                    try writer.writeStruct(r, .little);
-                },
-            }
-        }
-
-        try writer.writeInt(u8, 0, .little);
-    }
-    _ = try file.write(buffer[0..writer.end]);
-}
-
-pub fn load(path: []const u8, ecs: *ECS) !void {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-
-    var buffer: [1024]u8 = std.mem.zeroes([1024]u8);
-    _ = try file.read(&buffer);
-    var reader = std.io.Reader.fixed(&buffer);
-
-    const version = try reader.takeInt(u8, .little);
-    const magic = try reader.takeInt(u32, .little);
-
-    if (version != 1) @panic("TODO");
-    if (magic != MAGIC) @panic("Magic bytes not matching");
-
-    const number_of_entities = try reader.takeInt(u32, .little);
-    for (0..number_of_entities) |_| {
-        const e = ecs.create();
-        var component = try reader.takeInt(u8, .little);
-        while (component > 0) {
-            switch (component) {
-                // transform
-                1 => _ = ecs.transforms.add(e, try reader.takeStruct(Transform, .little)),
-                // ssprite
-                2 => {
-                    const s = try reader.takeInt(u32, .little);
-                    _ = ecs.ssprite.add(e, @enumFromInt(s));
-                },
-                // light
-                3 => _ = ecs.light.add(e, try reader.takeStruct(Light, .little)),
-                4 => {
-                    const r = try reader.takeInt(u8, .little);
-                    switch (r) {
-                        1 => _ = ecs.collider.add(e, .{ .Circle = @bitCast(try reader.takeInt(u32, .little)) }),
-                        2 => _ = ecs.collider.add(e, .{ .Rectangle = try reader.takeStruct(rl.Vector2, .little) }),
-                        else => std.log.warn("got unexpected collider id {d}", .{r}),
-                    }
-                },
-                else => std.log.warn("got unexpected component id {d}", .{component}),
-            }
-            component = try reader.takeInt(u8, .little);
-        }
-    }
-}
-
 pub fn main() !void {
     rl.setTraceLogLevel(.warning);
     rl.initWindow(window_width, window_height, "test");
@@ -594,10 +594,12 @@ pub fn main() !void {
     var lights = LightSystem.init(allocator);
     defer lights.free(allocator);
 
-    const lvl = try Level.init("dads", allocator, render_width, render_height);
+    try levels.init(allocator, render_width, render_height);
+    defer levels.free(allocator);
 
+    const lvl = levels.get(.DEMO);
     var eui: EditorUI = .{};
-    try load("level", &ecs);
+    try ecs.load("level");
 
     while (!rl.windowShouldClose()) {
         const dt = rl.getFrameTime();
@@ -690,7 +692,7 @@ pub fn main() !void {
             eui.selected_entity = null;
         }
 
-        if (rl.isKeyPressed(.s) and rl.isKeyDown(.left_control)) _ = try save("level", &ecs);
+        if (rl.isKeyPressed(.s) and rl.isKeyDown(.left_control)) _ = try ecs.save("level");
 
         rl.beginDrawing();
         rl.clearBackground(.blank);
