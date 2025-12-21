@@ -12,12 +12,15 @@ pub const Level = struct {
     shader: rl.Shader,
 
     const Self = @This();
-    pub fn init(path: []const u8, allocator: std.mem.Allocator, render_width: i32, render_height: i32) !Self {
-        _ = path;
-        const physics_image = rl.loadImage("graphics.png") catch unreachable;
+    pub fn init(comptime path: []const u8, allocator: std.mem.Allocator, render_width: i32, render_height: i32) !Self {
+        // TODO
+        // redo this path shit
+        // it should route a directory i think instead
+        // also this is deifnetly wrong, the physics_image should not be the source for the normal map. I think
+        const physics_image = rl.loadImage(path ++ ".png") catch unreachable;
         return .{
             .physics_image = physics_image,
-            .graphics_texture = rl.loadTexture("graphics.png") catch unreachable,
+            .graphics_texture = rl.loadTexture(path ++ ".png") catch unreachable,
             .intermediate_texture = rl.loadRenderTexture(render_width, render_height) catch unreachable,
             .normal_texture = create_normal(physics_image, allocator),
             .shader = try rl.loadShader(null, "world_water.glsl"),
@@ -133,3 +136,19 @@ pub const Level = struct {
         discreete_render_texture.end();
     }
 };
+
+pub const Levels = enum(u32) { DEMO };
+
+pub var levels: std.EnumArray(Levels, Level) = undefined;
+
+pub fn init(allocator: std.mem.Allocator, render_width: i32, render_height: i32) !void {
+    levels.set(.DEMO, try .init("graphics", allocator, render_width, render_height));
+}
+
+pub fn free(allocator: std.mem.Allocator) void {
+    _ = allocator;
+}
+
+pub fn get(l: Levels) *Level {
+    return levels.getPtr(l);
+}
