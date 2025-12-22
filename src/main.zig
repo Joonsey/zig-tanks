@@ -7,11 +7,11 @@ const levels = @import("level.zig");
 
 const Camera = @import("camera.zig").Camera;
 const Entity = @import("entity.zig").Entity;
-const RenderRow = @import("entity.zig").RenderRow;
 const ECS = @import("entity.zig").ECS;
 
 const LightSystem = @import("light.zig").LightSystem;
 const RenderSystem = @import("render.zig").RenderSystem;
+const PhysicsSystem = @import("physics.zig").PhysicsSystem;
 
 const consts = @import("consts.zig");
 const render_width = consts.render_width;
@@ -95,6 +95,23 @@ fn draw_ui(ui: *EditorUI, ecs: *ECS, renders: RenderSystem) void {
             i += 22;
         } else {
             if (rg.button(.init(20, i, width, 20), "Add Collider")) _ = ecs.collider.add(e, .{ .Rectangle = .init(8, 8) });
+            i += 22;
+        }
+        // rigidbody
+        if (ecs.rigidbody.get(e)) |rb| {
+            _ = rg.label(.init(20, i, width, 20), "Rigidbody");
+            i += 22;
+            if (rg.button(.init(20, i, width, 20), "Delete Rigidbody")) ecs.rigidbody.remove(e);
+            i += 22;
+            var buff: [64]u8 = undefined;
+            var text = std.fmt.bufPrintZ(&buff, "damping: {d:.2}", .{rb.damping}) catch "";
+            _ = rg.slider(.init(20, i, width, 20), "", text, &rb.damping, 0, 1);
+            i += 22;
+            text = std.fmt.bufPrintZ(&buff, "Inv Mass: {d:.2}", .{rb.inv_mass}) catch "";
+            _ = rg.slider(.init(20, i, width, 20), "", text, &rb.inv_mass, 0, 10);
+            i += 22;
+        } else {
+            if (rg.button(.init(20, i, width, 20), "Add Rigidbody")) _ = ecs.rigidbody.add(e, .{});
             i += 22;
         }
     }
@@ -186,8 +203,12 @@ pub fn main() !void {
     var renders = try RenderSystem.init(allocator, &camera);
     defer renders.free(allocator);
 
+    var physics = PhysicsSystem.init(allocator);
+    defer physics.free(allocator);
+
     ecs.add_system(.{ .ctx = &renders, .update_fn = &RenderSystem.update });
     ecs.add_system(.{ .ctx = &lights, .update_fn = &LightSystem.update });
+    ecs.add_system(.{ .ctx = &physics, .update_fn = &PhysicsSystem.update });
 
     try levels.init(allocator);
     defer levels.free(allocator);
@@ -196,6 +217,7 @@ pub fn main() !void {
     var eui: EditorUI = .{};
     try ecs.load("level");
 
+    rl.setTargetFPS(60);
     while (!rl.windowShouldClose()) {
         const dt = rl.getFrameTime();
         lvl.draw_normals(camera, renders.normal_render_texture);
@@ -288,6 +310,25 @@ pub fn main() !void {
         if (rl.isKeyPressed(.delete)) {
             if (eui.selected_entity) |e| ecs.destroy(e);
             eui.selected_entity = null;
+        }
+
+        if (rl.isKeyPressed(.k)) {
+            if (ecs.rigidbody.get(1)) |rb| {
+                rb.impulse.x = 10;
+            }
+        }
+
+        if (rl.isKeyDown(.h)) {
+            if (ecs.rigidbody.get(1)) |rb| {
+                rb.velocity.x = -100;
+                // rb.force.x = 1000;
+            }
+        }
+        if (rl.isKeyDown(.l)) {
+            if (ecs.rigidbody.get(1)) |rb| {
+                rb.velocity.x = 100;
+                // rb.force.x = 1000;
+            }
         }
 
         if (rl.isKeyPressed(.s) and rl.isKeyDown(.left_control)) _ = try ecs.save("level");

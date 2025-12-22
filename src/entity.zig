@@ -31,6 +31,16 @@ pub const Collider = union(enum) {
     Rectangle: rl.Vector2,
 };
 
+pub const RigidBody = extern struct {
+    velocity: rl.Vector2 = .{ .x = 0, .y = 0 },
+
+    force: rl.Vector2 = .{ .x = 0, .y = 0 },
+    impulse: rl.Vector2 = .{ .x = 0, .y = 0 },
+
+    inv_mass: f32 = 1.0, // 0 = static body
+    damping: f32 = 0.45,
+};
+
 pub fn SparseSet(comptime T: type) type {
     return struct {
         dense_entities: std.ArrayList(Entity),
@@ -99,6 +109,15 @@ pub fn SparseSet(comptime T: type) type {
     };
 }
 
+pub const Event = union(enum) {
+    Collision: struct {
+        e: Entity,
+        other: Entity,
+        velocity: rl.Vector2,
+        axis: enum { X, Y },
+    },
+};
+
 pub const ECS = struct {
     const System = struct {
         ctx: *anyopaque,
@@ -109,6 +128,7 @@ pub const ECS = struct {
     ssprite: SparseSet(assets.Assets),
     light: SparseSet(Light),
     collider: SparseSet(Collider),
+    rigidbody: SparseSet(RigidBody),
 
     next: Entity = 0,
     free_entities: std.ArrayList(Entity),
@@ -116,6 +136,7 @@ pub const ECS = struct {
     allocator: std.mem.Allocator,
 
     systems: std.ArrayList(System) = .{},
+    events: std.ArrayList(Event) = .{},
 
     const Self = @This();
     pub fn init(allocator: std.mem.Allocator) Self {
@@ -124,6 +145,7 @@ pub const ECS = struct {
             .ssprite = .init(allocator, MAX_ENTITY_COUNT),
             .light = .init(allocator, MAX_ENTITY_COUNT),
             .collider = .init(allocator, MAX_ENTITY_COUNT),
+            .rigidbody = .init(allocator, MAX_ENTITY_COUNT),
 
             .free_entities = std.ArrayList(Entity).initCapacity(allocator, MAX_ENTITY_COUNT) catch unreachable,
             .allocator = allocator,
@@ -150,6 +172,7 @@ pub const ECS = struct {
         if (self.transforms.get(e)) |l| _ = self.transforms.add(ne, l.*);
         if (self.ssprite.get(e)) |l| _ = self.ssprite.add(ne, l.*);
         if (self.collider.get(e)) |l| _ = self.collider.add(ne, l.*);
+        if (self.rigidbody.get(e)) |l| _ = self.rigidbody.add(ne, l.*);
 
         return ne;
     }
@@ -162,10 +185,14 @@ pub const ECS = struct {
         self.transforms.remove(e);
         self.ssprite.remove(e);
         self.collider.remove(e);
+        self.rigidbody.remove(e);
     }
 
     pub fn update(self: *Self) void {
         for (self.systems.items) |system| system.update_fn(system.ctx, self);
+
+        for (self.events.items) |e| std.log.debug("EVENT: {}", .{e});
+        self.events.clearRetainingCapacity();
     }
 
     pub fn free(self: *Self) void {
@@ -173,23 +200,30 @@ pub const ECS = struct {
         self.transforms.deinit(self.allocator);
         self.light.deinit(self.allocator);
         self.collider.deinit(self.allocator);
+        self.rigidbody.deinit(self.allocator);
 
         self.free_entities.clearAndFree(self.allocator);
 
         self.systems.clearAndFree(self.allocator);
+        self.events.clearAndFree(self.allocator);
     }
 
     pub fn debug(self: *Self) void {
         std.log.debug("ECS DEBUG START", .{});
         for (0..self.next) |ue| {
             const e: Entity = @intCast(ue);
-            std.log.debug("{?} | {?} | {?} | {?}", .{
+            std.log.debug("ENTITY ROW: {?} | {?} | {?} | {?} | {?}", .{
                 self.transforms.get(e),
                 self.light.get(e),
                 self.ssprite.get(e),
                 self.collider.get(e),
+                self.rigidbody.get(e),
             });
         }
+    }
+
+    pub fn push_event(self: *Self, event: Event) void {
+        self.events.append(self.allocator, event) catch unreachable;
     }
 
     const MAGIC = 0x4C564C88;
@@ -222,6 +256,7 @@ pub const ECS = struct {
                     },
                     // light
                     3 => _ = self.light.add(e, try reader.takeStruct(Light, .little)),
+                    // collider
                     4 => {
                         const r = try reader.takeInt(u8, .little);
                         switch (r) {
@@ -230,6 +265,8 @@ pub const ECS = struct {
                             else => std.log.warn("got unexpected collider id {d}", .{r}),
                         }
                     },
+                    // rigibody
+                    5 => _ = self.rigidbody.add(e, try reader.takeStruct(RigidBody, .little)),
                     else => std.log.warn("got unexpected component id {d}", .{component}),
                 }
                 component = try reader.takeInt(u8, .little);
@@ -276,6 +313,14 @@ pub const ECS = struct {
                         try writer.writeStruct(r, .little);
                     },
                 }
+            }
+            if (self.rigidbody.get(e)) |rb| {
+                try writer.writeInt(u8, 5, .little);
+                var rb_filtered = rb.*;
+                rb_filtered.force = .zero();
+                rb_filtered.velocity = .zero();
+                rb_filtered.impulse = .zero();
+                try writer.writeStruct(rb_filtered, .little);
             }
 
             try writer.writeInt(u8, 0, .little);
