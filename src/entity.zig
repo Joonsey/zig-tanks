@@ -124,6 +124,11 @@ pub const ECS = struct {
         update_fn: *const fn (ctx: *anyopaque, ecs: *Self) void,
     };
 
+    const EventListener = struct {
+        ctx: *anyopaque,
+        on_event_fn: *const fn (ctx: *anyopaque, event: Event, ecs: *Self) void,
+    };
+
     transforms: SparseSet(Transform),
     ssprite: SparseSet(assets.Assets),
     light: SparseSet(Light),
@@ -136,6 +141,8 @@ pub const ECS = struct {
     allocator: std.mem.Allocator,
 
     systems: std.ArrayList(System) = .{},
+    event_listeners: std.ArrayList(EventListener) = .{},
+
     events: std.ArrayList(Event) = .{},
 
     const Self = @This();
@@ -191,7 +198,7 @@ pub const ECS = struct {
     pub fn update(self: *Self) void {
         for (self.systems.items) |system| system.update_fn(system.ctx, self);
 
-        for (self.events.items) |e| std.log.debug("EVENT: {}", .{e});
+        for (self.events.items) |e| for (self.event_listeners.items) |el| el.on_event_fn(el.ctx, e, self);
         self.events.clearRetainingCapacity();
     }
 
@@ -205,6 +212,8 @@ pub const ECS = struct {
         self.free_entities.clearAndFree(self.allocator);
 
         self.systems.clearAndFree(self.allocator);
+        self.event_listeners.clearAndFree(self.allocator);
+
         self.events.clearAndFree(self.allocator);
     }
 
