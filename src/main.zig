@@ -81,13 +81,18 @@ fn draw_ui(ui: *EditorUI, ecs: *ECS, renders: RenderSystem) void {
             i += 22;
             switch (c.*) {
                 .Circle => {
-                    _ = rg.slider(.init(20, i, width, 20), "", "Radius", &c.Circle, 0, 255);
+                    var buff: [64]u8 = undefined;
+                    const text = std.fmt.bufPrintZ(&buff, "Radius: {d:.2}", .{c.Circle}) catch "";
+                    _ = rg.slider(.init(20, i, width, 20), "", text, &c.Circle, 0, 255);
                     i += 22;
                 },
                 .Rectangle => |*r| {
-                    _ = rg.slider(.init(20, i, width, 20), "", "X (radius)", &r.x, 0, 32);
+                    var buff: [64]u8 = undefined;
+                    var text = std.fmt.bufPrintZ(&buff, "X (radius): {d:.2}", .{r.x}) catch "";
+                    _ = rg.slider(.init(20, i, width, 20), "", text, &r.x, 0, 32);
                     i += 22;
-                    _ = rg.slider(.init(20, i, width, 20), "", "Y (radius)", &r.y, 0, 32);
+                    text = std.fmt.bufPrintZ(&buff, "X (radius): {d:.2}", .{r.y}) catch "";
+                    _ = rg.slider(.init(20, i, width, 20), "", text, &r.y, 0, 32);
                     i += 22;
                 },
             }
@@ -147,6 +152,7 @@ pub fn main() !void {
     // 2 Height
     // 3 Discreet
     var debug_mode: i32 = 0;
+    var freecam: bool = true;
 
     const shader = try rl.loadShader(null, "shader.glsl");
 
@@ -193,7 +199,36 @@ pub fn main() !void {
 
         if (rl.isKeyDown(.q)) eui.selected_entity = null;
 
-        handle_input(&camera, dt);
+        if (freecam) camera.handle_input(dt);
+        if (!freecam) {
+            if (ecs.transforms.get(0)) |t| {
+                if (ecs.rigidbody.get(0)) |rb| {
+                    const forward: rl.Vector2 = .{
+                        .x = @cos(t.rotation),
+                        .y = @sin(t.rotation),
+                    };
+
+                    const accel = 600;
+                    if (rl.isKeyDown(.w)) {
+                        rb.velocity.x += accel * forward.x * dt;
+                        rb.velocity.y += accel * forward.y * dt;
+                    }
+                    if (rl.isKeyDown(.s)) {
+                        rb.velocity.x -= accel * forward.x * dt;
+                        rb.velocity.y -= accel * forward.y * dt;
+                    }
+
+                    if (rl.isKeyDown(.a)) {
+                        t.rotation -= 3 * dt;
+                    }
+                    if (rl.isKeyDown(.d)) {
+                        t.rotation += 3 * dt;
+                    }
+                    camera.rotation = t.rotation + std.math.pi * 0.5;
+                    camera.target(t.position);
+                }
+            }
+        }
 
         if (rl.isMouseButtonPressed(.left)) {
             for (ecs.transforms.dense_entities.items) |e| if (ecs.transforms.get(e)) |t| {
@@ -272,27 +307,9 @@ pub fn main() !void {
             eui.selected_entity = null;
         }
 
-        if (rl.isKeyPressed(.k)) {
-            if (ecs.rigidbody.get(1)) |rb| {
-                rb.impulse.x = 10;
-            }
-        }
-
-        if (rl.isKeyDown(.h)) {
-            if (ecs.rigidbody.get(1)) |rb| {
-                rb.velocity.x = -100;
-                // rb.force.x = 1000;
-            }
-        }
-        if (rl.isKeyDown(.l)) {
-            if (ecs.rigidbody.get(1)) |rb| {
-                rb.velocity.x = 100;
-                // rb.force.x = 1000;
-            }
-        }
-
         if (rl.isKeyPressed(.s) and rl.isKeyDown(.left_control)) _ = try ecs.save("level");
 
+        if (rl.isKeyPressed(.m)) freecam = !freecam;
         rl.beginDrawing();
         rl.clearBackground(.blank);
 
