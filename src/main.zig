@@ -123,46 +123,6 @@ fn draw_ui(ui: *EditorUI, ecs: *ECS, renders: RenderSystem) void {
     i += 22;
 }
 
-fn handle_input(camera: *Camera, dt: f32) void {
-    const forward: rl.Vector2 = .{
-        .x = @cos(camera.rotation),
-        .y = @sin(camera.rotation),
-    };
-
-    const right: rl.Vector2 = .{
-        .x = @cos(camera.rotation + std.math.pi * 0.5),
-        .y = @sin(camera.rotation + std.math.pi * 0.5),
-    };
-
-    const accel = 600;
-    var position = camera.position;
-    if (rl.isKeyDown(.d)) {
-        position.x += accel * forward.x * dt;
-        position.y += accel * forward.y * dt;
-    }
-    if (rl.isKeyDown(.a)) {
-        position.x -= accel * forward.x * dt;
-        position.y -= accel * forward.y * dt;
-    }
-    if (rl.isKeyDown(.s)) {
-        position.x += accel * right.x * dt;
-        position.y += accel * right.y * dt;
-    }
-    if (rl.isKeyDown(.w)) {
-        position.x -= accel * right.x * dt;
-        position.y -= accel * right.y * dt;
-    }
-
-    if (rl.isKeyDown(.q)) {
-        camera.rotation -= 3 * dt;
-    }
-    if (rl.isKeyDown(.e)) {
-        camera.rotation += 3 * dt;
-    }
-
-    camera.target(position);
-}
-
 pub fn main() !void {
     rl.setTraceLogLevel(.warning);
     rl.initWindow(window_width, window_height, "test");

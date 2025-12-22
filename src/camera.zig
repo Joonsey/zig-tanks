@@ -63,4 +63,44 @@ pub const Camera = struct {
 
         return !render_box.checkCollision(arg_box);
     }
+    pub fn handle_input(self: *Self, dt: f32) void {
+        const camera = self;
+        const forward: rl.Vector2 = .{
+            .x = @cos(camera.rotation),
+            .y = @sin(camera.rotation),
+        };
+
+        const right: rl.Vector2 = .{
+            .x = @cos(camera.rotation + std.math.pi * 0.5),
+            .y = @sin(camera.rotation + std.math.pi * 0.5),
+        };
+
+        const accel = 600;
+        var position = camera.position;
+        if (rl.isKeyDown(.d)) {
+            position.x += accel * forward.x * dt;
+            position.y += accel * forward.y * dt;
+        }
+        if (rl.isKeyDown(.a)) {
+            position.x -= accel * forward.x * dt;
+            position.y -= accel * forward.y * dt;
+        }
+        if (rl.isKeyDown(.s)) {
+            position.x += accel * right.x * dt;
+            position.y += accel * right.y * dt;
+        }
+        if (rl.isKeyDown(.w)) {
+            position.x -= accel * right.x * dt;
+            position.y -= accel * right.y * dt;
+        }
+
+        if (rl.isKeyDown(.q)) {
+            camera.rotation -= 3 * dt;
+        }
+        if (rl.isKeyDown(.e)) {
+            camera.rotation += 3 * dt;
+        }
+
+        camera.target(position);
+    }
 };
