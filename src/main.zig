@@ -9,7 +9,8 @@ const Camera = @import("camera.zig").Camera;
 const Entity = @import("entity.zig").Entity;
 const RenderRow = @import("entity.zig").RenderRow;
 const ECS = @import("entity.zig").ECS;
-const LightSystem = @import("entity.zig").LightSystem;
+
+const LightSystem = @import("light.zig").LightSystem;
 const RenderSystem = @import("render.zig").RenderSystem;
 
 const consts = @import("consts.zig");
@@ -179,13 +180,14 @@ pub fn main() !void {
     defer ecs.free();
     defer ecs.debug();
 
-    var lights = LightSystem.init(allocator);
+    var lights = LightSystem.init(allocator, &camera);
     defer lights.free(allocator);
 
     var renders = try RenderSystem.init(allocator, &camera);
     defer renders.free(allocator);
 
     ecs.add_system(.{ .ctx = &renders, .update_fn = &RenderSystem.update });
+    ecs.add_system(.{ .ctx = &lights, .update_fn = &LightSystem.update });
 
     try levels.init(allocator);
     defer levels.free(allocator);
@@ -200,6 +202,8 @@ pub fn main() !void {
         lvl.draw(camera, renders.discreete_render_texture);
 
         ecs.update();
+
+        renders.draw();
 
         if (rl.isKeyPressed(.n)) {
             debug_mode = @mod(1 + debug_mode, 4); // 4 is max debug modes
@@ -292,7 +296,7 @@ pub fn main() !void {
         rl.clearBackground(.blank);
 
         shader.activate();
-        lights.update_shader_values(camera, shader, &ecs);
+        lights.update_shader_values(shader);
         rl.setShaderValueTexture(shader, rl.getShaderLocation(shader, "normal"), renders.normal_render_texture.texture);
         rl.setShaderValue(shader, rl.getShaderLocation(shader, "debug_mode"), &debug_mode, .int);
         rl.drawTexturePro(renders.discreete_render_texture.texture, .{

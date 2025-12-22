@@ -75,13 +75,16 @@ pub const RenderSystem = struct {
         }
     }
 
+    pub fn draw(self: *Self) void {
+        self.draw_system_function(self.render_rows.items);
+    }
+
     pub fn update(ctx: *anyopaque, ecs: *ECS) void {
         const self: *Self = @ptrCast(@alignCast(ctx));
         const camera = self.camera.*;
         query_render_rows(camera, &ecs.transforms, &ecs.ssprite, &self.render_rows);
 
         std.mem.sort(RenderRow, self.render_rows.items, camera, order_by_camera_position);
-        self.draw_system_function(self.render_rows.items);
     }
 
     // this is much more performant than the previous implement

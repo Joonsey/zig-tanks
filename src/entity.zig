@@ -9,12 +9,27 @@ const render_width = consts.render_width;
 const render_height = consts.render_height;
 const MAX_ENTITY_COUNT = consts.MAX_ENTITY_COUNT;
 
+pub const Entity = u32;
 pub const Transform = extern struct {
     position: rl.Vector2 = .{ .x = 0, .y = 0 },
     rotation: f32 = 0,
 };
 
-pub const Entity = u32;
+pub const Light = extern struct {
+    height: u8,
+    radius: u8 = 120,
+    color: rl.Color,
+};
+
+// Collisions are always around the center position of the object
+// i am opting to do this because we don't need the 'position' from raylib
+// aditionaly they need to be fine-tuned as they need to be rotated and i don't think a simple AABB
+// rotation will suffice for rectangular collisions.
+// in the instance for Rectangle, the X and Y are in radius, not diameter. Along each axis.
+pub const Collider = union(enum) {
+    Circle: f32,
+    Rectangle: rl.Vector2,
+};
 
 pub fn SparseSet(comptime T: type) type {
     return struct {
@@ -149,17 +164,6 @@ pub const ECS = struct {
         self.collider.remove(e);
     }
 
-    pub fn query_light_rows(camera: Camera, transforms: *SparseSet(Transform), lights: *SparseSet(Light), out: *std.ArrayList(LightRow)) void {
-        out.clearRetainingCapacity();
-
-        for (lights.dense_entities.items, 0..) |e, i| {
-            if (transforms.get(e)) |t| {
-                // TODO guarantee capacity
-                if (!camera.is_out_of_bounds(t.position)) out.appendAssumeCapacity(.{ .entity = e, .transform = t, .light = &lights.dense.items[i] });
-            }
-        }
-    }
-
     pub fn update(self: *Self) void {
         for (self.systems.items) |system| system.update_fn(system.ctx, self);
     }
@@ -278,65 +282,4 @@ pub const ECS = struct {
         }
         _ = try file.write(buffer[0..writer.end]);
     }
-};
-
-const Light = extern struct {
-    height: u8,
-    radius: u8 = 120,
-    color: rl.Color,
-};
-
-const LightRow = struct {
-    entity: Entity,
-    light: *Light,
-    transform: *Transform,
-};
-
-pub const LightSystem = struct {
-    arr: std.ArrayList(LightRow),
-
-    const Self = @This();
-
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return .{ .arr = std.ArrayList(LightRow).initCapacity(allocator, 25) catch unreachable };
-    }
-
-    /// this function presumes that the shader is activated
-    pub fn update_shader_values(self: *Self, camera: Camera, shader: rl.Shader, ecs: *ECS) void {
-        ECS.query_light_rows(camera, &ecs.transforms, &ecs.light, &self.arr);
-        for (self.arr.items, 0..) |lr, i| {
-            const transform = lr.transform;
-            const light = lr.light;
-            rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].position", .{i})), &camera.get_relative_position(transform.position).divide(.init(render_width, render_height)), .vec2);
-
-            const height: f32 = @as(f32, @floatFromInt(light.height)) / 255.0;
-            rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].height", .{i})), &height, .float);
-
-            const radius: f32 = @as(f32, @floatFromInt(light.radius)) / 255.0;
-            rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].radius", .{i})), &radius, .float);
-
-            var color: rl.Vector3 = .{
-                .x = @as(f32, @floatFromInt(light.color.r)) / 255.0,
-                .y = @as(f32, @floatFromInt(light.color.g)) / 255.0,
-                .z = @as(f32, @floatFromInt(light.color.b)) / 255.0,
-            };
-            color = color.scale(@as(f32, @floatFromInt(light.color.a)) / 255.0);
-            rl.setShaderValue(shader, rl.getShaderLocation(shader, rl.textFormat("lights[%i].color", .{i})), &color, .vec3);
-        }
-        rl.setShaderValue(shader, rl.getShaderLocation(shader, "light_count"), &self.arr.items.len, .int);
-    }
-
-    pub fn free(self: *Self, allocator: std.mem.Allocator) void {
-        self.arr.clearAndFree(allocator);
-    }
-};
-
-// Collisions are always around the center position of the object
-// i am opting to do this because we don't need the 'position' from raylib
-// aditionaly they need to be fine-tuned as they need to be rotated and i don't think a simple AABB
-// rotation will suffice for rectangular collisions.
-// in the instance for Rectangle, the X and Y are in radius, not diameter. Along each axis.
-const Collider = union(enum) {
-    Circle: f32,
-    Rectangle: rl.Vector2,
 };
