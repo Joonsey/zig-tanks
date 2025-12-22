@@ -67,7 +67,7 @@ pub const PhysicsSystem = struct {
                                 } + switch (c.*) {
                                     .Circle => |r| r,
                                     .Rectangle => |r| r.x,
-                                }) / 2;
+                                });
                             } else {
                                 t.position.x = other_t.position.x + (switch (other_c.*) {
                                     .Circle => |r| r,
@@ -75,7 +75,7 @@ pub const PhysicsSystem = struct {
                                 } + switch (c.*) {
                                     .Circle => |r| r,
                                     .Rectangle => |r| r.x,
-                                }) / 2;
+                                });
                             }
                             rb.velocity.x = 0;
                             ecs.push_event(.{ .Collision = .{ .e = e, .other = other_e, .velocity = start_velocity, .axis = .X } });
@@ -97,7 +97,7 @@ pub const PhysicsSystem = struct {
                                 } + switch (c.*) {
                                     .Circle => |r| r,
                                     .Rectangle => |r| r.y,
-                                }) / 2;
+                                });
                             } else {
                                 t.position.y = other_t.position.y + (switch (other_c.*) {
                                     .Circle => |r| r,
@@ -105,7 +105,7 @@ pub const PhysicsSystem = struct {
                                 } + switch (c.*) {
                                     .Circle => |r| r,
                                     .Rectangle => |r| r.y,
-                                }) / 2;
+                                });
                             }
                             rb.velocity.y = 0;
                             ecs.push_event(.{ .Collision = .{ .e = e, .other = other_e, .velocity = start_velocity, .axis = .Y } });
@@ -147,6 +147,9 @@ const CollisionBody = struct {
 fn colliding(c: CollisionBody, other: CollisionBody) bool {
     return switch (c.collider) {
         .Circle => |r| c.transform.position.distance(other.transform.position) < r,
-        .Rectangle => |r| c.transform.position.distance(other.transform.position) < @max(r.x, r.y),
+        .Rectangle => |r| switch (other.collider) {
+            .Circle => |ir| c.transform.position.distance(other.transform.position) < ir,
+            .Rectangle => |ir| rl.Rectangle.init(c.transform.position.x, c.transform.position.y, r.x * 2, r.y * 2).checkCollision(rl.Rectangle.init(other.transform.position.x, other.transform.position.y, ir.x * 2, ir.y * 2)),
+        },
     };
 }
