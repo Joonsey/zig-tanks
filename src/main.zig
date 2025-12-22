@@ -224,7 +224,12 @@ pub fn main() !void {
                     if (rl.isKeyDown(.d)) {
                         t.rotation += 3 * dt;
                     }
-                    camera.rotation = t.rotation + std.math.pi * 0.5;
+
+                    var delta = t.rotation + std.math.pi * 0.5 - camera.rotation;
+                    // simple angle wrapping, might be better way to this
+                    delta = std.math.atan2(std.math.sin(delta), std.math.cos(delta));
+                    camera.rotation += delta / 20;
+
                     camera.target(t.position);
                 }
             }
