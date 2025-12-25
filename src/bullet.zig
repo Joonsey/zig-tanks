@@ -15,6 +15,8 @@ const consts = @import("consts.zig");
 const render_width = consts.render_width;
 const render_height = consts.render_height;
 
+const BULLET_SPEED = 200;
+
 pub const BulletSystem = struct {
     const Self = @This();
     pub fn init(
@@ -26,12 +28,29 @@ pub const BulletSystem = struct {
 
     pub fn on_event(ctx: *anyopaque, event: Event, ecs: *ECS) void {
         const self: *Self = @ptrCast(@alignCast(ctx));
+        const dt = rl.getFrameTime();
         _ = self;
-        _ = ecs;
 
         switch (event) {
             .Collision => |c| {
-                std.log.debug("c: {}", .{c});
+                const e = c.e;
+                if (ecs.bullet.get(e)) |_| {
+                    if (ecs.rigidbody.get(e)) |rb| {
+                        if (ecs.transforms.get(e)) |t| {
+                            t.position = t.position.subtract(rb.velocity.scale(dt));
+
+                            switch (c.axis) {
+                                .X => rb.velocity.x = -rb.velocity.x,
+                                .Y => rb.velocity.y = -rb.velocity.y,
+                            }
+
+                            const normalized_velocity = rb.velocity.normalize();
+                            const rotation = std.math.atan2(normalized_velocity.y, normalized_velocity.x);
+
+                            t.rotation = rotation;
+                        }
+                    }
+                }
             },
         }
     }
@@ -42,14 +61,14 @@ pub const BulletSystem = struct {
             const new_bullet = ecs.create();
 
             const new_bullet_transform = ecs.transforms.add(new_bullet, t.*);
-            const new_bullet_collider = ecs.collider.add(new_bullet, .{ .shape = .{ .Rectangle = .init(6, 6) }, .mode = .Trigger });
+            const new_bullet_collider = ecs.collider.add(new_bullet, .{ .shape = .{ .Rectangle = .init(4, 4) }, .mode = .Trigger });
             const rb = ecs.rigidbody.add(new_bullet, .{ .damping = 1 });
 
             const forward: rl.Vector2 = .{
                 .x = @cos(t.rotation),
                 .y = @sin(t.rotation),
             };
-            rb.velocity = forward.scale(200);
+            rb.velocity = forward.scale(BULLET_SPEED);
 
             const owner_radius = if (ecs.collider.get(owner)) |c| switch (c.shape) {
                 .Rectangle => |r| @max(r.x, r.y),
@@ -71,6 +90,7 @@ pub const BulletSystem = struct {
 
             _ = ecs.ssprite.add(new_bullet, .BULLET);
             _ = ecs.bullet.add(new_bullet, bullet);
+            _ = ecs.light.add(new_bullet, .{ .color = .red, .height = 15, .radius = 20 });
         }
     }
 
