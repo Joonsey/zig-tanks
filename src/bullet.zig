@@ -42,7 +42,7 @@ pub const BulletSystem = struct {
             const new_bullet = ecs.create();
 
             const new_bullet_transform = ecs.transforms.add(new_bullet, t.*);
-            const new_bullet_collider = ecs.collider.add(new_bullet, .{ .shape = .{ .Rectangle = .init(8, 8) }, .mode = .Trigger });
+            const new_bullet_collider = ecs.collider.add(new_bullet, .{ .shape = .{ .Rectangle = .init(6, 6) }, .mode = .Trigger });
             const rb = ecs.rigidbody.add(new_bullet, .{ .damping = 1 });
 
             const forward: rl.Vector2 = .{
@@ -60,10 +60,16 @@ pub const BulletSystem = struct {
                 .Rectangle => |r| @max(r.x, r.y),
                 .Circle => |r| r,
             };
-            const margin = 4;
+
+            const denormalized_forward: rl.Vector2 = .{
+                .x = if (forward.x < 0.5 and forward.x > -0.5) 0 else if (forward.x > 0) 1 else -1,
+                .y = if (forward.y < 0.5 and forward.y > -0.5) 0 else if (forward.y > 0) 1 else -1,
+            };
+            // idk. this works though but looks messy asf
+            const margin = 1 + denormalized_forward.length() * 2;
             new_bullet_transform.position = new_bullet_transform.position.add(forward.scale(owner_radius + bullet_radius + margin));
 
-            _ = ecs.ssprite.add(new_bullet, .ITEMBOX);
+            _ = ecs.ssprite.add(new_bullet, .BULLET);
             _ = ecs.bullet.add(new_bullet, bullet);
         }
     }
