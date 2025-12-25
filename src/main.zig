@@ -179,6 +179,7 @@ pub fn main() !void {
     ecs.add_system(.{ .ctx = &renders, .update_fn = &RenderSystem.update });
     ecs.add_system(.{ .ctx = &lights, .update_fn = &LightSystem.update });
     ecs.add_system(.{ .ctx = &physics, .update_fn = &PhysicsSystem.update });
+    ecs.add_system(.{ .ctx = &bullets, .update_fn = &BulletSystem.update });
 
     ecs.add_event_listener(.{ .ctx = &bullets, .on_event_fn = &BulletSystem.on_event });
 

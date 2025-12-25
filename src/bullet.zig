@@ -90,14 +90,21 @@ pub const BulletSystem = struct {
 
             _ = ecs.ssprite.add(new_bullet, .BULLET);
             _ = ecs.bullet.add(new_bullet, bullet);
-            _ = ecs.light.add(new_bullet, .{ .color = .red, .height = 15, .radius = 20 });
+            _ = ecs.light.add(new_bullet, .{ .color = .red, .height = 15, .radius = 50 });
         }
     }
 
     pub fn update(ctx: *anyopaque, ecs: *ECS) void {
+        const dt = rl.getFrameTime();
         const self: *Self = @ptrCast(@alignCast(ctx));
+        for (ecs.bullet.dense_entities.items) |e| {
+            const bullet = ecs.bullet.get(e).?;
+            bullet.remaining -= dt;
+            if (bullet.remaining <= 0) {
+                ecs.destroy(e);
+            }
+        }
         _ = self;
-        _ = ecs;
     }
 
     pub fn free(self: *Self, allocator: std.mem.Allocator) void {

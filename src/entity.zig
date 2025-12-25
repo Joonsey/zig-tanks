@@ -55,6 +55,8 @@ const BulletType = enum { Demo };
 
 pub const Bullet = struct {
     type: BulletType = .Demo,
+    lifetime: f32 = 20,
+    remaining: f32 = 20,
 };
 
 pub fn SparseSet(comptime T: type) type {
@@ -244,16 +246,29 @@ pub const ECS = struct {
 
     pub fn debug(self: *Self) void {
         std.log.debug("ECS DEBUG START", .{});
-        for (0..self.next) |ue| {
-            const e: Entity = @intCast(ue);
-            std.log.debug("ENTITY ROW: {?} | {?} | {?} | {?} | {?}", .{
-                self.transforms.get(e),
-                self.light.get(e),
-                self.ssprite.get(e),
-                self.collider.get(e),
-                self.rigidbody.get(e),
-                // ignoring bullets
-            });
+        if (true) {
+            for (self.transforms.dense_entities.items) |e| {
+                std.log.debug("ENTITY ROW: {?} | {?} | {?} | {?} | {?}", .{
+                    self.transforms.get(e),
+                    self.light.get(e),
+                    self.ssprite.get(e),
+                    self.collider.get(e),
+                    self.rigidbody.get(e),
+                    // ignoring bullets
+                });
+            }
+        } else {
+            for (0..self.next) |ue| {
+                const e: Entity = @intCast(ue);
+                std.log.debug("ENTITY ROW: {?} | {?} | {?} | {?} | {?}", .{
+                    self.transforms.get(e),
+                    self.light.get(e),
+                    self.ssprite.get(e),
+                    self.collider.get(e),
+                    self.rigidbody.get(e),
+                    // ignoring bullets
+                });
+            }
         }
     }
 
