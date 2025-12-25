@@ -35,6 +35,11 @@ pub const BulletSystem = struct {
             .Collision => |c| {
                 const e = c.e;
                 if (ecs.bullet.get(e)) |_| {
+                    if (ecs.bullet.get(c.other)) |_| {
+                        ecs.destroy(e);
+                        ecs.destroy(c.other);
+                        return;
+                    }
                     if (ecs.rigidbody.get(e)) |rb| {
                         if (ecs.transforms.get(e)) |t| {
                             t.position = t.position.subtract(rb.velocity.scale(dt));
