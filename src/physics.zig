@@ -110,8 +110,8 @@ pub const PhysicsSystem = struct {
                                         .Rectangle => |r| r.y,
                                     });
                                 }
+                                rb.velocity.y = 0;
                             }
-                            rb.velocity.y = 0;
                             ecs.push_event(.{ .Collision = .{ .e = e, .other = other_e, .velocity = start_velocity, .axis = .Y } });
                             break;
                         }
