@@ -47,7 +47,7 @@ pub const Level = struct {
                     normals[dst + 0] = @intFromFloat(std.math.clamp(0 * 0.5 + 0.5, 0.0, 1.0) * 255);
                     normals[dst + 1] = @intFromFloat(std.math.clamp(0 * 0.5 + 0.5, 0.0, 1.0) * 255);
                     normals[dst + 2] = @intFromFloat(std.math.clamp(1 * 0.5 + 0.5, 0.0, 1.0) * 255);
-                    normals[dst + 3] = 150; // luminocity
+                    normals[dst + 3] = 200; // luminocity
                 } else {
                     normals[dst + 0] = 0;
                     normals[dst + 1] = 0;
