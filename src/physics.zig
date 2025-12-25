@@ -60,24 +60,26 @@ pub const PhysicsSystem = struct {
                     const other_c = ecs.collider.get(other_e).?;
                     if (ecs.transforms.get(other_e)) |other_t| {
                         if (colliding(.{ .collider = c.*, .transform = t }, .{ .collider = other_c.*, .transform = other_t })) {
-                            if (rb.velocity.x > 0) {
-                                t.position.x = other_t.position.x - (switch (other_c.*) {
-                                    .Circle => |r| r,
-                                    .Rectangle => |r| r.x,
-                                } + switch (c.*) {
-                                    .Circle => |r| r,
-                                    .Rectangle => |r| r.x,
-                                });
-                            } else {
-                                t.position.x = other_t.position.x + (switch (other_c.*) {
-                                    .Circle => |r| r,
-                                    .Rectangle => |r| r.x,
-                                } + switch (c.*) {
-                                    .Circle => |r| r,
-                                    .Rectangle => |r| r.x,
-                                });
+                            if (other_c.mode == .Solid and c.mode == .Solid) {
+                                if (rb.velocity.x > 0) {
+                                    t.position.x = other_t.position.x - (switch (other_c.shape) {
+                                        .Circle => |r| r,
+                                        .Rectangle => |r| r.x,
+                                    } + switch (c.shape) {
+                                        .Circle => |r| r,
+                                        .Rectangle => |r| r.x,
+                                    });
+                                } else {
+                                    t.position.x = other_t.position.x + (switch (other_c.shape) {
+                                        .Circle => |r| r,
+                                        .Rectangle => |r| r.x,
+                                    } + switch (c.shape) {
+                                        .Circle => |r| r,
+                                        .Rectangle => |r| r.x,
+                                    });
+                                }
+                                rb.velocity.x = 0;
                             }
-                            rb.velocity.x = 0;
                             ecs.push_event(.{ .Collision = .{ .e = e, .other = other_e, .velocity = start_velocity, .axis = .X } });
                             break;
                         }
@@ -90,22 +92,24 @@ pub const PhysicsSystem = struct {
                     const other_c = ecs.collider.get(other_e).?;
                     if (ecs.transforms.get(other_e)) |other_t| {
                         if (colliding(.{ .collider = c.*, .transform = t }, .{ .collider = other_c.*, .transform = other_t })) {
-                            if (rb.velocity.y > 0) {
-                                t.position.y = other_t.position.y - (switch (other_c.*) {
-                                    .Circle => |r| r,
-                                    .Rectangle => |r| r.y,
-                                } + switch (c.*) {
-                                    .Circle => |r| r,
-                                    .Rectangle => |r| r.y,
-                                });
-                            } else {
-                                t.position.y = other_t.position.y + (switch (other_c.*) {
-                                    .Circle => |r| r,
-                                    .Rectangle => |r| r.y,
-                                } + switch (c.*) {
-                                    .Circle => |r| r,
-                                    .Rectangle => |r| r.y,
-                                });
+                            if (other_c.mode == .Solid and c.mode == .Solid) {
+                                if (rb.velocity.y > 0) {
+                                    t.position.y = other_t.position.y - (switch (other_c.shape) {
+                                        .Circle => |r| r,
+                                        .Rectangle => |r| r.y,
+                                    } + switch (c.shape) {
+                                        .Circle => |r| r,
+                                        .Rectangle => |r| r.y,
+                                    });
+                                } else {
+                                    t.position.y = other_t.position.y + (switch (other_c.shape) {
+                                        .Circle => |r| r,
+                                        .Rectangle => |r| r.y,
+                                    } + switch (c.shape) {
+                                        .Circle => |r| r,
+                                        .Rectangle => |r| r.y,
+                                    });
+                                }
                             }
                             rb.velocity.y = 0;
                             ecs.push_event(.{ .Collision = .{ .e = e, .other = other_e, .velocity = start_velocity, .axis = .Y } });

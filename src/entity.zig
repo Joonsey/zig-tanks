@@ -26,9 +26,19 @@ pub const Light = extern struct {
 // aditionaly they need to be fine-tuned as they need to be rotated and i don't think a simple AABB
 // rotation will suffice for rectangular collisions.
 // in the instance for Rectangle, the X and Y are in radius, not diameter. Along each axis.
-pub const Collider = union(enum) {
+pub const ColliderShape = union(enum) {
     Circle: f32,
     Rectangle: rl.Vector2,
+};
+
+pub const ColliderMode = enum(u32) {
+    Solid,
+    Trigger,
+};
+
+pub const Collider = struct {
+    shape: ColliderShape,
+    mode: ColliderMode = .Solid,
 };
 
 pub const RigidBody = extern struct {
@@ -39,6 +49,12 @@ pub const RigidBody = extern struct {
 
     inv_mass: f32 = 1.0, // 0 = static body
     damping: f32 = 0.45,
+};
+
+const BulletType = enum { Demo };
+
+pub const Bullet = struct {
+    type: BulletType = .Demo,
 };
 
 pub fn SparseSet(comptime T: type) type {
@@ -134,6 +150,7 @@ pub const ECS = struct {
     light: SparseSet(Light),
     collider: SparseSet(Collider),
     rigidbody: SparseSet(RigidBody),
+    bullet: SparseSet(Bullet),
 
     next: Entity = 0,
     free_entities: std.ArrayList(Entity),
@@ -153,6 +170,7 @@ pub const ECS = struct {
             .light = .init(allocator, MAX_ENTITY_COUNT),
             .collider = .init(allocator, MAX_ENTITY_COUNT),
             .rigidbody = .init(allocator, MAX_ENTITY_COUNT),
+            .bullet = .init(allocator, MAX_ENTITY_COUNT),
 
             .free_entities = std.ArrayList(Entity).initCapacity(allocator, MAX_ENTITY_COUNT) catch unreachable,
             .allocator = allocator,
@@ -161,6 +179,10 @@ pub const ECS = struct {
 
     pub fn add_system(self: *Self, system: System) void {
         self.systems.append(self.allocator, system) catch unreachable;
+    }
+
+    pub fn add_event_listener(self: *Self, el: EventListener) void {
+        self.event_listeners.append(self.allocator, el) catch unreachable;
     }
 
     pub fn create(self: *Self) Entity {
@@ -180,6 +202,7 @@ pub const ECS = struct {
         if (self.ssprite.get(e)) |l| _ = self.ssprite.add(ne, l.*);
         if (self.collider.get(e)) |l| _ = self.collider.add(ne, l.*);
         if (self.rigidbody.get(e)) |l| _ = self.rigidbody.add(ne, l.*);
+        if (self.bullet.get(e)) |l| _ = self.bullet.add(ne, l.*);
 
         return ne;
     }
@@ -193,6 +216,7 @@ pub const ECS = struct {
         self.ssprite.remove(e);
         self.collider.remove(e);
         self.rigidbody.remove(e);
+        self.bullet.remove(e);
     }
 
     pub fn update(self: *Self) void {
@@ -208,6 +232,7 @@ pub const ECS = struct {
         self.light.deinit(self.allocator);
         self.collider.deinit(self.allocator);
         self.rigidbody.deinit(self.allocator);
+        self.bullet.deinit(self.allocator);
 
         self.free_entities.clearAndFree(self.allocator);
 
@@ -227,6 +252,7 @@ pub const ECS = struct {
                 self.ssprite.get(e),
                 self.collider.get(e),
                 self.rigidbody.get(e),
+                // ignoring bullets
             });
         }
     }
@@ -268,11 +294,15 @@ pub const ECS = struct {
                     // collider
                     4 => {
                         const r = try reader.takeInt(u8, .little);
-                        switch (r) {
-                            1 => _ = self.collider.add(e, .{ .Circle = @bitCast(try reader.takeInt(u32, .little)) }),
-                            2 => _ = self.collider.add(e, .{ .Rectangle = try reader.takeStruct(rl.Vector2, .little) }),
-                            else => std.log.warn("got unexpected collider id {d}", .{r}),
-                        }
+                        const shape: ColliderShape = switch (r) {
+                            1 => ColliderShape{ .Circle = @as(f32, @bitCast(try reader.takeInt(u32, .little))) },
+                            2 => ColliderShape{ .Rectangle = try reader.takeStruct(rl.Vector2, .little) },
+                            else => blk: {
+                                std.log.warn("got unexpected collider id {d}", .{r});
+                                break :blk ColliderShape{ .Rectangle = rl.Vector2.init(8, 8) };
+                            },
+                        };
+                        _ = self.collider.add(e, .{ .shape = shape, .mode = try reader.takeEnum(ColliderMode, .little) });
                     },
                     // rigibody
                     5 => _ = self.rigidbody.add(e, try reader.takeStruct(RigidBody, .little)),
@@ -297,6 +327,7 @@ pub const ECS = struct {
 
         try writer.writeInt(u32, @intCast(entities.len), .little);
         for (entities) |e| {
+            if (self.bullet.get(e)) |_| continue;
             if (self.transforms.get(e)) |t| {
                 try writer.writeInt(u8, 1, .little);
                 try writer.writeStruct(t.*, .little);
@@ -311,7 +342,7 @@ pub const ECS = struct {
             }
             if (self.collider.get(e)) |c| {
                 try writer.writeInt(u8, 4, .little);
-                switch (c.*) {
+                switch (c.shape) {
                     .Circle => |r| {
                         try writer.writeInt(u8, 1, .little);
                         const bits: u32 = @bitCast(r);
@@ -322,6 +353,7 @@ pub const ECS = struct {
                         try writer.writeStruct(r, .little);
                     },
                 }
+                try writer.writeInt(u32, @intFromEnum(c.mode), .little);
             }
             if (self.rigidbody.get(e)) |rb| {
                 try writer.writeInt(u8, 5, .little);

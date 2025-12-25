@@ -12,6 +12,7 @@ const ECS = @import("entity.zig").ECS;
 const LightSystem = @import("light.zig").LightSystem;
 const RenderSystem = @import("render.zig").RenderSystem;
 const PhysicsSystem = @import("physics.zig").PhysicsSystem;
+const BulletSystem = @import("bullet.zig").BulletSystem;
 
 const consts = @import("consts.zig");
 const render_width = consts.render_width;
@@ -79,11 +80,11 @@ fn draw_ui(ui: *EditorUI, ecs: *ECS, renders: RenderSystem) void {
         if (ecs.collider.get(e)) |c| {
             _ = rg.label(.init(20, i, width, 20), "Collider");
             i += 22;
-            switch (c.*) {
-                .Circle => {
+            switch (c.shape) {
+                .Circle => |r| {
                     var buff: [64]u8 = undefined;
-                    const text = std.fmt.bufPrintZ(&buff, "Radius: {d:.2}", .{c.Circle}) catch "";
-                    _ = rg.slider(.init(20, i, width, 20), "", text, &c.Circle, 0, 255);
+                    const text = std.fmt.bufPrintZ(&buff, "Radius: {d:.2}", .{r}) catch "";
+                    _ = rg.slider(.init(20, i, width, 20), "", text, &c.shape.Circle, 0, 255);
                     i += 22;
                 },
                 .Rectangle => |*r| {
@@ -99,7 +100,7 @@ fn draw_ui(ui: *EditorUI, ecs: *ECS, renders: RenderSystem) void {
             if (rg.button(.init(20, i, width, 20), "Delete Collider")) ecs.collider.remove(e);
             i += 22;
         } else {
-            if (rg.button(.init(20, i, width, 20), "Add Collider")) _ = ecs.collider.add(e, .{ .Rectangle = .init(8, 8) });
+            if (rg.button(.init(20, i, width, 20), "Add Collider")) _ = ecs.collider.add(e, .{ .shape = .{ .Rectangle = .init(8, 8) } });
             i += 22;
         }
         // rigidbody
@@ -172,16 +173,28 @@ pub fn main() !void {
     var physics = PhysicsSystem.init(allocator);
     defer physics.free(allocator);
 
+    var bullets = BulletSystem.init(allocator);
+    defer bullets.free(allocator);
+
     ecs.add_system(.{ .ctx = &renders, .update_fn = &RenderSystem.update });
     ecs.add_system(.{ .ctx = &lights, .update_fn = &LightSystem.update });
     ecs.add_system(.{ .ctx = &physics, .update_fn = &PhysicsSystem.update });
+
+    ecs.add_event_listener(.{ .ctx = &bullets, .on_event_fn = &BulletSystem.on_event });
 
     try levels.init(allocator);
     defer levels.free(allocator);
 
     const lvl = levels.get(.DEMO);
     var eui: EditorUI = .{};
-    try ecs.load("level");
+    ecs.load("level") catch {
+        for (0..10) |i| {
+            const entity = ecs.create();
+            _ = ecs.transforms.add(entity, .{ .position = .init(@floatFromInt(i * 20), 100) });
+            _ = ecs.ssprite.add(entity, .ITEMBOX);
+            _ = ecs.rigidbody.add(entity, .{});
+        }
+    };
 
     rl.setTargetFPS(60);
     while (!rl.windowShouldClose()) {
@@ -208,7 +221,8 @@ pub fn main() !void {
                         .y = @sin(t.rotation),
                     };
 
-                    const accel = 600;
+                    const accel = 260;
+                    const rotation_force = 1.5;
                     if (rl.isKeyDown(.w)) {
                         rb.velocity.x += accel * forward.x * dt;
                         rb.velocity.y += accel * forward.y * dt;
@@ -219,10 +233,10 @@ pub fn main() !void {
                     }
 
                     if (rl.isKeyDown(.a)) {
-                        t.rotation -= 3 * dt;
+                        t.rotation -= rotation_force * dt;
                     }
                     if (rl.isKeyDown(.d)) {
-                        t.rotation += 3 * dt;
+                        t.rotation += rotation_force * dt;
                     }
 
                     var delta = t.rotation + std.math.pi * 0.5 - camera.rotation;
@@ -279,7 +293,7 @@ pub fn main() !void {
                                     const y_aligned = delta_y < delta_x;
                                     if (y_aligned) anticipated_position.y = @floor(other.position.y) else anticipated_position.x = @floor(other.position.x);
 
-                                    const pixel_perfect = if (ecs.collider.get(other_entity)) |c| switch (c.*) {
+                                    const pixel_perfect = if (ecs.collider.get(other_entity)) |c| switch (c.shape) {
                                         .Circle => |r| if (y_aligned) @floor(delta_x) == @floor(r * 2) else @floor(delta_y) == @floor(r * 2),
                                         .Rectangle => |r| if (y_aligned) @floor(delta_x) == @floor(r.x * 2) else @floor(delta_y) == @floor(r.y * 2),
                                     } else false;
@@ -318,6 +332,8 @@ pub fn main() !void {
         rl.beginDrawing();
         rl.clearBackground(.blank);
 
+        if (rl.isKeyPressed(.o)) bullets.add(0, .{ .type = .Demo }, &ecs);
+
         shader.activate();
         lights.update_shader_values(shader);
         rl.setShaderValueTexture(shader, rl.getShaderLocation(shader, "normal"), renders.normal_render_texture.texture);
@@ -339,7 +355,19 @@ pub fn main() !void {
         rl.drawFPS(0, 0);
         switch (debug_mode) {
             1 => rl.drawText("normals", 0, 20, 50, .white),
-            2 => rl.drawText("heights", 0, 20, 50, .white),
+            2 => {
+                for (ecs.collider.dense_entities.items) |e| {
+                    if (ecs.collider.get(e)) |c| {
+                        if (ecs.transforms.get(e)) |t| {
+                            switch (c.shape) {
+                                .Circle => |r| rl.drawCircleV(t.position, r, if (c.mode == .Solid) .red else .blue),
+                                .Rectangle => |r| rl.drawRectangleV(t.position.subtract(r), r.scale(2), if (c.mode == .Solid) .red else .blue),
+                            }
+                        }
+                    }
+                }
+                rl.drawText("colliders", 0, 20, 50, .white);
+            },
             3 => rl.drawText("discreet", 0, 20, 50, .white),
             else => {},
         }
