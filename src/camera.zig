@@ -15,7 +15,7 @@ pub const Camera = struct {
     pub fn init() Self {
         return .{
             .position = .{ .x = 0, .y = 0 },
-            .screen_offset = .{ .x = render_width / 2, .y = render_height * 0.8 },
+            .screen_offset = .{ .x = render_width / 2, .y = render_height * 0.6 },
             .render_dimensions = .{ .x = render_width, .y = render_height },
             .rotation = 0,
         };
