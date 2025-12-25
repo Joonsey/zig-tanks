@@ -145,11 +145,21 @@ const CollisionBody = struct {
 // TODO make this good
 // use SAT
 fn colliding(c: CollisionBody, other: CollisionBody) bool {
-    return switch (c.collider) {
+    return switch (c.collider.shape) {
         .Circle => |r| c.transform.position.distance(other.transform.position) < r,
-        .Rectangle => |r| switch (other.collider) {
+        .Rectangle => |r| switch (other.collider.shape) {
             .Circle => |ir| c.transform.position.distance(other.transform.position) < ir,
-            .Rectangle => |ir| rl.Rectangle.init(c.transform.position.x, c.transform.position.y, r.x * 2, r.y * 2).checkCollision(rl.Rectangle.init(other.transform.position.x, other.transform.position.y, ir.x * 2, ir.y * 2)),
+            .Rectangle => |ir| rl.Rectangle.init(
+                c.transform.position.x - r.x,
+                c.transform.position.y - r.y,
+                r.x * 2,
+                r.y * 2,
+            ).checkCollision(rl.Rectangle.init(
+                other.transform.position.x - ir.x,
+                other.transform.position.y - ir.y,
+                ir.x * 2,
+                ir.y * 2,
+            )),
         },
     };
 }
