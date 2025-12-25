@@ -50,7 +50,7 @@ pub const PhysicsSystem = struct {
             const projected_position = t.position.add(rb.velocity.scale(dt));
 
             if (ecs.collider.get(e)) |c| {
-                if (rb.velocity.length() == 0) break;
+                if (rb.velocity.length() == 0) continue;
 
                 const start_velocity = rb.velocity;
                 t.position.x = projected_position.x;
