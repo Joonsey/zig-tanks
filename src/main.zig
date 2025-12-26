@@ -40,6 +40,8 @@ fn draw_ui(ui: *EditorUI, ecs: *ECS, renders: RenderSystem) void {
             i += 22;
             _ = rg.slider(.init(20, i, width, 20), "", "Rotation", &t.rotation, 0, std.math.pi * 2);
             i += 22;
+            _ = rg.slider(.init(20, i, width, 20), "", "Height", &t.height, 0, 22);
+            i += 22;
         }
         // sprite
         if (ecs.ssprite.get(e)) |s| {

@@ -13,6 +13,7 @@ pub const Entity = u32;
 pub const Transform = extern struct {
     position: rl.Vector2 = .{ .x = 0, .y = 0 },
     rotation: f32 = 0,
+    height: f32 = 0,
 };
 
 pub const Light = extern struct {
@@ -58,6 +59,15 @@ pub const Bullet = struct {
     lifetime: f32 = 20,
     remaining: f32 = 20,
     bounces: u16 = 0,
+};
+
+pub const Particle = struct {
+    type: enum {
+        Normal,
+        Emitter,
+    } = .Normal,
+    lifetime: f32 = 20,
+    remaining: f32 = 20,
 };
 
 const Player = struct {

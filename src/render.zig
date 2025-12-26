@@ -54,7 +54,7 @@ pub const RenderSystem = struct {
         self.render_rows.clearAndFree(allocator);
     }
 
-    fn stack_draw(texture: rl.Texture, rotation: f32, position: rl.Vector2) void {
+    fn stack_draw(texture: rl.Texture, rotation: f32, position: rl.Vector2, height: f32) void {
         const width = texture.width;
         const rows: usize = @intCast(@divTrunc(texture.height, width));
         const f_width: f32 = @floatFromInt(width);
@@ -63,7 +63,7 @@ pub const RenderSystem = struct {
             const f_i: f32 = @floatFromInt(i);
             texture.drawPro(
                 .{ .x = 0, .y = f_inverse_i * f_width, .width = f_width, .height = f_width },
-                .{ .x = position.x, .y = position.y - f_i, .width = f_width, .height = f_width },
+                .{ .x = position.x, .y = position.y - f_i - height, .width = f_width, .height = f_width },
                 .{ .x = f_width / 2, .y = f_width / 2 },
                 std.math.radiansToDegrees(rotation),
                 .white,
@@ -100,7 +100,12 @@ pub const RenderSystem = struct {
     fn draw_system_function(self: Self, query: []RenderRow) void {
         const camera = self.camera.*;
         self.discreete_render_texture.begin();
-        for (query) |q| stack_draw(assets.get(q.sprite).texture, q.transform.rotation - camera.rotation, camera.get_relative_position(q.transform.position));
+        for (query) |q| stack_draw(
+            assets.get(q.sprite).texture,
+            q.transform.rotation - camera.rotation,
+            camera.get_relative_position(q.transform.position),
+            q.transform.height,
+        );
         self.discreete_render_texture.end();
 
         self.normal_render_texture.begin();
@@ -112,7 +117,7 @@ pub const RenderSystem = struct {
             // passing in absolute 'rotation'
             // I think this is correct, it's world space rotation, it looks right!
             rl.setShaderValue(self.normal_shader, rl.getShaderLocation(self.normal_shader, "rotation"), &rotation, .float);
-            stack_draw(s.normals, rotation, position);
+            stack_draw(s.normals, rotation, position, q.transform.height);
             self.normal_shader.deactivate();
         }
         self.normal_render_texture.end();
