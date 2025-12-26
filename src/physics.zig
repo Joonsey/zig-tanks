@@ -41,6 +41,7 @@ pub const PhysicsSystem = struct {
         switch (event) {
             .Collision => |c| {
                 if (ecs.collider.get(c.other)) |other_c| if (other_c.mode == .Trigger) return;
+                if (ecs.particle.get(c.e)) |_| return;
                 if (ecs.rigidbody.get(c.other)) |rb| {
                     var impulse = c.velocity;
                     if (ecs.transforms.get(c.other)) |other_t| {
