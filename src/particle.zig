@@ -34,23 +34,32 @@ pub const ParticleSystem = struct {
             .Collision => |c| {
                 if (ecs.bullet.get(c.e)) |_| {
                     if (ecs.collider.get(c.other)) |other_c| if (other_c.mode == .Trigger) return;
-                    const new_particle = ecs.create();
                     if (ecs.transforms.get(c.e)) |t| {
-                        _ = ecs.transforms.add(new_particle, t.*);
-                        _ = ecs.particle.add(new_particle, .{});
-                        _ = ecs.collider.add(new_particle, .{ .shape = .{ .Rectangle = .init(2, 2) }, .mode = .Trigger });
-                        _ = ecs.ssprite.add(new_particle, .PARTICLE);
-                        _ = ecs.light.add(new_particle, .{ .height = 6, .color = .white, .radius = 4 });
-                        var rb = ecs.rigidbody.add(new_particle, .{});
+                        const max: f32 = @divTrunc(c.velocity.length(), 100);
+                        for (0..@intFromFloat(max)) |i| {
+                            const new_particle = ecs.create();
+                            _ = ecs.transforms.add(new_particle, t.*);
+                            _ = ecs.particle.add(new_particle, .{});
+                            _ = ecs.collider.add(new_particle, .{ .shape = .{ .Rectangle = .init(2, 2) }, .mode = .Trigger });
+                            _ = ecs.ssprite.add(new_particle, .PARTICLE);
+                            // _ = ecs.light.add(new_particle, .{ .height = 2, .color = .white, .radius = 2 });
+                            var rb = ecs.rigidbody.add(new_particle, .{});
 
-                        rb.impulse = .init(@floatCast(@sin(rl.getTime() * 2)), @floatCast(@cos(rl.getTime() * 2)));
-                        rb.impulse = rb.impulse.scale(20);
+                            const fi: f32 = @floatFromInt(i);
+                            const offset = fi / max * std.math.pi;
+                            const x: f32 = @floatCast(@sin(offset + rl.getTime()) * std.math.pi);
+                            const y: f32 = @floatCast(@sin(offset + rl.getTime()) * std.math.pi);
+
+                            rb.impulse = .init(x, y);
+                            rb.impulse = rb.impulse.scale(20);
+                        }
                     }
                 }
 
                 if (ecs.particle.get(c.e)) |_| {
                     if (ecs.rigidbody.get(c.e)) |rb| {
                         if (ecs.transforms.get(c.e)) |t| {
+                            if (ecs.collider.get(c.other)) |other_c| if (other_c.mode == .Trigger) return;
                             t.position = t.position.subtract(rb.velocity.scale(dt));
                             // COPY PASTED FROM BULLETS
                             switch (c.axis) {
