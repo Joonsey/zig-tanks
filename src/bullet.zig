@@ -34,7 +34,13 @@ pub const BulletSystem = struct {
         switch (event) {
             .Collision => |c| {
                 const e = c.e;
-                if (ecs.bullet.get(e)) |_| {
+                if (ecs.bullet.get(e)) |b| {
+                    b.bounces += 1;
+
+                    if (b.bounces > 4) {
+                        ecs.destroy(e);
+                    }
+
                     if (ecs.bullet.get(c.other)) |_| {
                         ecs.destroy(e);
                         ecs.destroy(c.other);
@@ -43,6 +49,7 @@ pub const BulletSystem = struct {
                     if (ecs.rigidbody.get(e)) |rb| {
                         if (ecs.transforms.get(e)) |t| {
                             t.position = t.position.subtract(rb.velocity.scale(dt));
+                            // TODO something is going on when flipping on X axis, makes it re-collide and swap both axis directions unexpectedly
 
                             switch (c.axis) {
                                 .X => rb.velocity.x = -rb.velocity.x,
