@@ -15,7 +15,7 @@ struct Light {
     vec3 color;
 };
 
-#define MAX_LIGHTS 25
+#define MAX_LIGHTS 45
 
 uniform int light_count;
 uniform Light lights[MAX_LIGHTS];

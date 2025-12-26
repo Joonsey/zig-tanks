@@ -11,6 +11,8 @@ const consts = @import("consts.zig");
 const render_width = consts.render_width;
 const render_height = consts.render_height;
 
+const MAX_LIGHTS = 45;
+
 const LightRow = struct {
     entity: Entity,
     light: *Light,
@@ -26,7 +28,7 @@ pub const LightSystem = struct {
         allocator: std.mem.Allocator,
         camera: *Camera,
     ) Self {
-        return .{ .arr = std.ArrayList(LightRow).initCapacity(allocator, 25) catch unreachable, .camera = camera };
+        return .{ .arr = std.ArrayList(LightRow).initCapacity(allocator, MAX_LIGHTS) catch unreachable, .camera = camera };
     }
 
     /// this function presumes that the shader is activated
