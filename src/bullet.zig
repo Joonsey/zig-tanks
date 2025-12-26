@@ -49,10 +49,11 @@ pub const BulletSystem = struct {
                     if (ecs.rigidbody.get(e)) |rb| {
                         if (ecs.transforms.get(e)) |t| {
                             t.position = t.position.subtract(rb.velocity.scale(dt));
-                            // TODO something is going on when flipping on X axis, makes it re-collide and swap both axis directions unexpectedly
 
                             switch (c.axis) {
-                                .X => rb.velocity.x = -rb.velocity.x,
+                                // TODO something is going on when flipping on X axis, makes it re-collide and swap both axis directions unexpectedly
+                                // this is a temporary fix, but at least a fix
+                                .X => rb.velocity = rb.velocity.scale(-1),
                                 .Y => rb.velocity.y = -rb.velocity.y,
                             }
 
