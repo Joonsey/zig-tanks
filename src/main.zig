@@ -178,6 +178,7 @@ pub fn main() !void {
     ecs.add_system(.{ .ctx = &bullets, .update_fn = &BulletSystem.update });
 
     ecs.add_event_listener(.{ .ctx = &bullets, .on_event_fn = &BulletSystem.on_event });
+    ecs.add_event_listener(.{ .ctx = &physics, .on_event_fn = &PhysicsSystem.on_event });
 
     try levels.init(allocator);
     defer levels.free(allocator);

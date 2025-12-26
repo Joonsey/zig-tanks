@@ -1,11 +1,13 @@
 const std = @import("std");
 const rl = @import("raylib");
 const ECS = @import("entity.zig").ECS;
-const Entity = @import("entity.zig").Entity;
-const SparseSet = @import("entity.zig").SparseSet;
-const RigidBody = @import("entity.zig").RigidBody;
-const Transform = @import("entity.zig").Transform;
-const Collider = @import("entity.zig").Collider;
+const _entity = @import("entity.zig");
+const Entity = _entity.Entity;
+const SparseSet = _entity.SparseSet;
+const RigidBody = _entity.RigidBody;
+const Transform = _entity.Transform;
+const Collider = _entity.Collider;
+const Event = _entity.Event;
 
 const Camera = @import("camera.zig").Camera;
 const consts = @import("consts.zig");
@@ -28,6 +30,30 @@ pub const PhysicsSystem = struct {
         return .{
             .arr = std.ArrayList(PhysicsRow).initCapacity(allocator, 250) catch unreachable,
         };
+    }
+
+    pub fn on_event(ctx: *anyopaque, event: Event, ecs: *ECS) void {
+        const self: *Self = @ptrCast(@alignCast(ctx));
+        const dt = rl.getFrameTime();
+        _ = dt;
+        _ = self;
+
+        switch (event) {
+            .Collision => |c| {
+                if (ecs.rigidbody.get(c.other)) |rb| {
+                    var impulse = c.velocity;
+                    if (ecs.transforms.get(c.other)) |other_t| {
+                        if (ecs.transforms.get(c.e)) |t| {
+                            const direction = other_t.position.subtract(t.position).normalize();
+                            const magnitude = c.velocity.length();
+                            impulse = direction.scale(magnitude);
+                        }
+                    }
+
+                    rb.impulse = impulse;
+                }
+            },
+        }
     }
 
     pub fn update(ctx: *anyopaque, ecs: *ECS) void {
