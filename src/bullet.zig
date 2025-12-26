@@ -35,6 +35,7 @@ pub const BulletSystem = struct {
             .Collision => |c| {
                 const e = c.e;
                 if (ecs.bullet.get(e)) |b| {
+                    if (ecs.collider.get(c.other)) |other_c| if (other_c.mode == .Trigger) return;
                     b.bounces += 1;
 
                     if (b.bounces > 4) {

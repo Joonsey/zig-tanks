@@ -62,12 +62,8 @@ pub const Bullet = struct {
 };
 
 pub const Particle = struct {
-    type: enum {
-        Normal,
-        Emitter,
-    } = .Normal,
-    lifetime: f32 = 20,
-    remaining: f32 = 20,
+    lifetime: f32 = 2,
+    remaining: f32 = 2,
 };
 
 const Player = struct {
@@ -169,6 +165,7 @@ pub const ECS = struct {
     rigidbody: SparseSet(RigidBody),
     bullet: SparseSet(Bullet),
     player: SparseSet(Player),
+    particle: SparseSet(Particle),
 
     next: Entity = 0,
     free_entities: std.ArrayList(Entity),
@@ -190,6 +187,7 @@ pub const ECS = struct {
             .rigidbody = .init(allocator, MAX_ENTITY_COUNT),
             .bullet = .init(allocator, MAX_ENTITY_COUNT),
             .player = .init(allocator, MAX_ENTITY_COUNT),
+            .particle = .init(allocator, MAX_ENTITY_COUNT),
 
             .free_entities = std.ArrayList(Entity).initCapacity(allocator, MAX_ENTITY_COUNT) catch unreachable,
             .allocator = allocator,
@@ -223,6 +221,7 @@ pub const ECS = struct {
         if (self.rigidbody.get(e)) |l| _ = self.rigidbody.add(ne, l.*);
         if (self.bullet.get(e)) |l| _ = self.bullet.add(ne, l.*);
         if (self.player.get(e)) |l| _ = self.player.add(ne, l.*);
+        if (self.particle.get(e)) |l| _ = self.particle.add(ne, l.*);
 
         return ne;
     }
@@ -238,6 +237,7 @@ pub const ECS = struct {
         self.rigidbody.remove(e);
         self.bullet.remove(e);
         self.player.remove(e);
+        self.particle.remove(e);
     }
 
     pub fn update(self: *Self) void {
@@ -255,6 +255,7 @@ pub const ECS = struct {
         self.rigidbody.deinit(self.allocator);
         self.bullet.deinit(self.allocator);
         self.player.deinit(self.allocator);
+        self.particle.deinit(self.allocator);
 
         self.free_entities.clearAndFree(self.allocator);
 
