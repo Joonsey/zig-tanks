@@ -21,8 +21,6 @@ const render_height = consts.render_height;
 const window_width = consts.window_width;
 const window_height = consts.window_height;
 
-var normal_shader: rl.Shader = undefined;
-
 const EditorUI = struct {
     selected_entity: ?Entity = null,
     last_added: ?Entity = null,
@@ -134,7 +132,7 @@ pub fn main() !void {
     rl.initWindow(window_width, window_height, "test");
     defer rl.closeWindow();
 
-    rg.loadStyle("style_dark.rgs");
+    rg.loadStyle("./assets/ui_style.rgs");
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -154,8 +152,6 @@ pub fn main() !void {
     // 3 Discreet
     var debug_mode: i32 = 0;
     var freecam: bool = true;
-
-    const shader = try rl.loadShader(null, "shader.glsl");
 
     var camera: Camera = .init();
     camera.position = .init(100, 100);
@@ -188,7 +184,7 @@ pub fn main() !void {
 
     const lvl = levels.get(.DEMO);
     var eui: EditorUI = .{};
-    ecs.load("level") catch {
+    lvl.seed_ecs(&ecs) catch {
         for (0..10) |i| {
             const entity = ecs.create();
             _ = ecs.transforms.add(entity, .{ .position = .init(@floatFromInt(i * 20), 100) });
@@ -327,7 +323,7 @@ pub fn main() !void {
             eui.selected_entity = null;
         }
 
-        if (rl.isKeyPressed(.s) and rl.isKeyDown(.left_control)) _ = try ecs.save("level");
+        if (rl.isKeyPressed(.s) and rl.isKeyDown(.left_control)) _ = try ecs.save(lvl.get_data_path());
 
         if (rl.isKeyPressed(.m)) freecam = !freecam;
         rl.beginDrawing();
@@ -335,23 +331,7 @@ pub fn main() !void {
 
         if (rl.isKeyPressed(.o)) bullets.add(0, .{ .type = .Demo }, &ecs);
 
-        shader.activate();
-        lights.update_shader_values(shader);
-        rl.setShaderValueTexture(shader, rl.getShaderLocation(shader, "normal"), renders.normal_render_texture.texture);
-        rl.setShaderValue(shader, rl.getShaderLocation(shader, "debug_mode"), &debug_mode, .int);
-        rl.drawTexturePro(renders.discreete_render_texture.texture, .{
-            .x = 0,
-            .y = 0,
-            .width = @floatFromInt(render_width),
-            .height = @floatFromInt(-render_height),
-        }, .{
-            .x = 0,
-            .y = 0,
-            .width = @floatFromInt(window_width),
-            .height = @floatFromInt(window_height),
-        }, rl.Vector2.zero(), 0, .white);
-        shader.deactivate();
-
+        renders.draw_final_pass(&lights, debug_mode);
         // drawing debug information
         rl.drawFPS(0, 0);
         switch (debug_mode) {

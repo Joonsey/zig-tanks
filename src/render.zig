@@ -8,10 +8,13 @@ const render_width = consts.render_width;
 const render_height = consts.render_height;
 const MAX_ENTITY_COUNT = consts.MAX_ENTITY_COUNT;
 
+const window_width = consts.window_width;
+const window_height = consts.window_height;
+
 const ECS = @import("entity.zig").ECS;
 const Entity = @import("entity.zig").Entity;
 const Transform = @import("entity.zig").Transform;
-const LightSystem = @import("entity.zig").LightSystem;
+const LightSystem = @import("light.zig").LightSystem;
 
 const SparseSet = @import("entity.zig").SparseSet;
 
@@ -27,8 +30,11 @@ pub const RenderSystem = struct {
     normal_render_texture: rl.RenderTexture,
 
     normal_shader: rl.Shader,
+    final_shader: rl.Shader,
 
     render_rows: std.ArrayList(RenderRow),
+
+    const SHADERS_PATH = "./assets/shaders/";
     const Self = @This();
     pub fn init(
         allocator: std.mem.Allocator,
@@ -38,8 +44,9 @@ pub const RenderSystem = struct {
             .camera = camera,
             .discreete_render_texture = try rl.loadRenderTexture(render_width, render_height),
             .normal_render_texture = try rl.loadRenderTexture(render_width, render_height),
-            .normal_shader = try rl.loadShader(null, "normal.glsl"),
+            .normal_shader = try rl.loadShader(null, SHADERS_PATH ++ "normal.glsl"),
             .render_rows = std.ArrayList(RenderRow).initCapacity(allocator, MAX_ENTITY_COUNT) catch unreachable,
+            .final_shader = try rl.loadShader(null, SHADERS_PATH ++ "shader.glsl"),
         };
     }
 
@@ -120,6 +127,28 @@ pub const RenderSystem = struct {
         self.normal_render_texture.begin();
         rl.clearBackground(.blank);
         self.normal_render_texture.end();
+    }
+
+    // TODO move stuff out of here
+    // this feels pretty bespoke and stupid
+    pub fn draw_final_pass(self: Self, lights: *LightSystem, debug_mode: i32) void {
+        const shader = self.final_shader;
+        shader.activate();
+        lights.update_shader_values(shader);
+        rl.setShaderValueTexture(shader, rl.getShaderLocation(shader, "normal"), self.normal_render_texture.texture);
+        rl.setShaderValue(shader, rl.getShaderLocation(shader, "debug_mode"), &debug_mode, .int);
+        rl.drawTexturePro(self.discreete_render_texture.texture, .{
+            .x = 0,
+            .y = 0,
+            .width = @floatFromInt(render_width),
+            .height = @floatFromInt(-render_height),
+        }, .{
+            .x = 0,
+            .y = 0,
+            .width = @floatFromInt(window_width),
+            .height = @floatFromInt(window_height),
+        }, rl.Vector2.zero(), 0, .white);
+        shader.deactivate();
     }
 };
 

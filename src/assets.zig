@@ -157,8 +157,9 @@ pub const SSprite = struct {
     normals: rl.Texture,
 
     const Self = @This();
-    fn init(path: [:0]const u8, allocator: std.mem.Allocator) !Self {
-        const texture = try rl.loadTexture(path);
+    const ASSETS_PATH = "./assets/sprites/";
+    fn init(comptime path: [:0]const u8, allocator: std.mem.Allocator) !Self {
+        const texture = try rl.loadTexture(ASSETS_PATH ++ path);
         const density = try build_density_volume(texture, allocator);
         defer allocator.free(density);
 

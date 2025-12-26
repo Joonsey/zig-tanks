@@ -2,6 +2,7 @@ const std = @import("std");
 const rl = @import("raylib");
 
 const assets = @import("assets.zig");
+const ECS = @import("entity.zig").ECS;
 const Camera = @import("camera.zig").Camera;
 
 const consts = @import("consts.zig");
@@ -15,19 +16,24 @@ pub const Level = struct {
     intermediate_texture: rl.RenderTexture,
     shader: rl.Shader,
 
+    path: []const u8,
     const Self = @This();
+    const LEVELS_PATH = "./assets/levels/";
+    const SHADERS_PATH = "./assets/shaders/";
     pub fn init(comptime path: []const u8, allocator: std.mem.Allocator) !Self {
         // TODO
         // redo this path shit
         // it should route a directory i think instead
         // also this is deifnetly wrong, the physics_image should not be the source for the normal map. I think
-        const physics_image = rl.loadImage(path ++ ".png") catch unreachable;
+        const physics_image = rl.loadImage(LEVELS_PATH ++ path ++ "/graphics.png") catch unreachable;
         return .{
             .physics_image = physics_image,
-            .graphics_texture = rl.loadTexture(path ++ ".png") catch unreachable,
+            .graphics_texture = rl.loadTexture(LEVELS_PATH ++ path ++ "/graphics.png") catch unreachable,
             .intermediate_texture = rl.loadRenderTexture(render_width, render_height) catch unreachable,
             .normal_texture = create_normal(physics_image, allocator),
-            .shader = try rl.loadShader(null, "world_water.glsl"),
+            .shader = try rl.loadShader(null, SHADERS_PATH ++ "world_water.glsl"),
+
+            .path = path,
         };
     }
 
@@ -139,6 +145,19 @@ pub const Level = struct {
         shader.deactivate();
         discreete_render_texture.end();
     }
+
+    pub fn get_data_path(self: Self) [:0]const u8 {
+        var buff: [64]u8 = undefined;
+        return std.fmt.bufPrintZ(&buff, "{s}{s}/data", .{ LEVELS_PATH, self.path }) catch blk: {
+            std.log.err("data path name too long or otherwise invalid!", .{});
+            break :blk "";
+        };
+    }
+
+    pub fn seed_ecs(self: Self, ecs: *ECS) !void {
+        const full_path = self.get_data_path();
+        return ecs.load(full_path);
+    }
 };
 
 pub const Levels = enum(u32) { DEMO };
@@ -146,7 +165,7 @@ pub const Levels = enum(u32) { DEMO };
 pub var levels: std.EnumArray(Levels, Level) = undefined;
 
 pub fn init(allocator: std.mem.Allocator) !void {
-    levels.set(.DEMO, try .init("graphics", allocator));
+    levels.set(.DEMO, try .init("demo", allocator));
 }
 
 pub fn free(allocator: std.mem.Allocator) void {
