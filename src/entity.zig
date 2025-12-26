@@ -57,6 +57,11 @@ pub const Bullet = struct {
     type: BulletType = .Demo,
     lifetime: f32 = 20,
     remaining: f32 = 20,
+    bounces: u16 = 0,
+};
+
+const Player = struct {
+    network_id: u32 = 0,
 };
 
 pub fn SparseSet(comptime T: type) type {
@@ -153,6 +158,7 @@ pub const ECS = struct {
     collider: SparseSet(Collider),
     rigidbody: SparseSet(RigidBody),
     bullet: SparseSet(Bullet),
+    player: SparseSet(Player),
 
     next: Entity = 0,
     free_entities: std.ArrayList(Entity),
@@ -173,6 +179,7 @@ pub const ECS = struct {
             .collider = .init(allocator, MAX_ENTITY_COUNT),
             .rigidbody = .init(allocator, MAX_ENTITY_COUNT),
             .bullet = .init(allocator, MAX_ENTITY_COUNT),
+            .player = .init(allocator, MAX_ENTITY_COUNT),
 
             .free_entities = std.ArrayList(Entity).initCapacity(allocator, MAX_ENTITY_COUNT) catch unreachable,
             .allocator = allocator,
@@ -205,6 +212,7 @@ pub const ECS = struct {
         if (self.collider.get(e)) |l| _ = self.collider.add(ne, l.*);
         if (self.rigidbody.get(e)) |l| _ = self.rigidbody.add(ne, l.*);
         if (self.bullet.get(e)) |l| _ = self.bullet.add(ne, l.*);
+        if (self.player.get(e)) |l| _ = self.player.add(ne, l.*);
 
         return ne;
     }
@@ -219,6 +227,7 @@ pub const ECS = struct {
         self.collider.remove(e);
         self.rigidbody.remove(e);
         self.bullet.remove(e);
+        self.player.remove(e);
     }
 
     pub fn update(self: *Self) void {
@@ -235,6 +244,7 @@ pub const ECS = struct {
         self.collider.deinit(self.allocator);
         self.rigidbody.deinit(self.allocator);
         self.bullet.deinit(self.allocator);
+        self.player.deinit(self.allocator);
 
         self.free_entities.clearAndFree(self.allocator);
 
@@ -248,24 +258,26 @@ pub const ECS = struct {
         std.log.debug("ECS DEBUG START", .{});
         if (true) {
             for (self.transforms.dense_entities.items) |e| {
-                std.log.debug("ENTITY ROW: {?} | {?} | {?} | {?} | {?}", .{
+                std.log.debug("ENTITY ROW: {?} | {?} | {?} | {?} | {?} | {?}", .{
                     self.transforms.get(e),
                     self.light.get(e),
                     self.ssprite.get(e),
                     self.collider.get(e),
                     self.rigidbody.get(e),
+                    self.player.get(e),
                     // ignoring bullets
                 });
             }
         } else {
             for (0..self.next) |ue| {
                 const e: Entity = @intCast(ue);
-                std.log.debug("ENTITY ROW: {?} | {?} | {?} | {?} | {?}", .{
+                std.log.debug("ENTITY ROW: {?} | {?} | {?} | {?} | {?} | {?}", .{
                     self.transforms.get(e),
                     self.light.get(e),
                     self.ssprite.get(e),
                     self.collider.get(e),
                     self.rigidbody.get(e),
+                    self.player.get(e),
                     // ignoring bullets
                 });
             }
