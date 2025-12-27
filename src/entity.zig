@@ -9,6 +9,8 @@ const render_width = consts.render_width;
 const render_height = consts.render_height;
 const MAX_ENTITY_COUNT = consts.MAX_ENTITY_COUNT;
 
+const MAX_DATAFILE_SIZE = 2048;
+
 pub const Entity = u32;
 pub const Transform = extern struct {
     position: rl.Vector2 = .{ .x = 0, .y = 0 },
@@ -64,6 +66,7 @@ pub const Bullet = struct {
 pub const Particle = struct {
     lifetime: f32 = 2,
     remaining: f32 = 2,
+    color: rl.Color = .white,
 };
 
 const Player = struct {
@@ -304,7 +307,7 @@ pub const ECS = struct {
         const file = try std.fs.cwd().openFile(path, .{});
         defer file.close();
 
-        var buffer: [1024]u8 = std.mem.zeroes([1024]u8);
+        var buffer: [MAX_DATAFILE_SIZE]u8 = std.mem.zeroes([MAX_DATAFILE_SIZE]u8);
         _ = try file.read(&buffer);
         var reader = std.io.Reader.fixed(&buffer);
 
@@ -355,7 +358,7 @@ pub const ECS = struct {
         const file = try std.fs.cwd().createFile(path, .{});
         defer file.close();
 
-        var buffer: [1024]u8 = std.mem.zeroes([1024]u8);
+        var buffer: [MAX_DATAFILE_SIZE]u8 = std.mem.zeroes([MAX_DATAFILE_SIZE]u8);
         var writer = std.io.Writer.fixed(&buffer);
 
         try writer.writeInt(u8, 1, .little);
@@ -366,6 +369,8 @@ pub const ECS = struct {
         try writer.writeInt(u32, @intCast(entities.len), .little);
         for (entities) |e| {
             if (self.bullet.get(e)) |_| continue;
+            if (self.particle.get(e)) |_| continue;
+
             if (self.transforms.get(e)) |t| {
                 try writer.writeInt(u8, 1, .little);
                 try writer.writeStruct(t.*, .little);

@@ -11,9 +11,11 @@ const MAX_ENTITY_COUNT = consts.MAX_ENTITY_COUNT;
 const window_width = consts.window_width;
 const window_height = consts.window_height;
 
-const ECS = @import("entity.zig").ECS;
-const Entity = @import("entity.zig").Entity;
-const Transform = @import("entity.zig").Transform;
+const _entity = @import("entity.zig");
+const ECS = _entity.ECS;
+const Entity = _entity.Entity;
+const Transform = _entity.Transform;
+const Particle = _entity.Particle;
 const LightSystem = @import("light.zig").LightSystem;
 
 const SparseSet = @import("entity.zig").SparseSet;
@@ -22,8 +24,12 @@ pub const RenderRow = struct {
     entity: Entity,
     transform: *Transform,
     sprite: assets.Assets,
+    color: rl.Color = .white,
 };
 
+// Artifacts are occuring because the renderer batches up draw calls before
+// entities are potentially destroyed, leaving some weird behaviour. But it's only visual because the drawing is naturally deferred until later.
+// TODO Fix this shit
 pub const RenderSystem = struct {
     camera: *Camera,
     discreete_render_texture: rl.RenderTexture,
@@ -54,7 +60,7 @@ pub const RenderSystem = struct {
         self.render_rows.clearAndFree(allocator);
     }
 
-    fn stack_draw(texture: rl.Texture, rotation: f32, position: rl.Vector2, height: f32) void {
+    fn stack_draw(texture: rl.Texture, rotation: f32, position: rl.Vector2, height: f32, color: rl.Color) void {
         const width = texture.width;
         const rows: usize = @intCast(@divTrunc(texture.height, width));
         const f_width: f32 = @floatFromInt(width);
@@ -66,18 +72,18 @@ pub const RenderSystem = struct {
                 .{ .x = position.x, .y = position.y - f_i - height, .width = f_width, .height = f_width },
                 .{ .x = f_width / 2, .y = f_width / 2 },
                 std.math.radiansToDegrees(rotation),
-                .white,
+                color,
             );
         }
     }
 
-    fn query_render_rows(camera: Camera, transforms: *SparseSet(Transform), sprites: *SparseSet(assets.Assets), out: *std.ArrayList(RenderRow)) void {
+    fn query_render_rows(camera: Camera, transforms: *SparseSet(Transform), sprites: *SparseSet(assets.Assets), particles: *SparseSet(Particle), out: *std.ArrayList(RenderRow)) void {
         out.clearRetainingCapacity();
-
         for (sprites.dense_entities.items, 0..) |e, i| {
             if (transforms.get(e)) |t| {
                 // TODO guarantee capacity
-                if (!camera.is_out_of_bounds(t.position)) out.appendAssumeCapacity(.{ .entity = e, .transform = t, .sprite = sprites.dense.items[i] });
+                const color: rl.Color = if (particles.get(e)) |p| p.color else .white;
+                if (!camera.is_out_of_bounds(t.position)) out.appendAssumeCapacity(.{ .entity = e, .transform = t, .sprite = sprites.dense.items[i], .color = color });
             }
         }
     }
@@ -89,7 +95,7 @@ pub const RenderSystem = struct {
     pub fn update(ctx: *anyopaque, ecs: *ECS) void {
         const self: *Self = @ptrCast(@alignCast(ctx));
         const camera = self.camera.*;
-        query_render_rows(camera, &ecs.transforms, &ecs.ssprite, &self.render_rows);
+        query_render_rows(camera, &ecs.transforms, &ecs.ssprite, &ecs.particle, &self.render_rows);
 
         std.mem.sort(RenderRow, self.render_rows.items, camera, order_by_camera_position);
     }
@@ -105,6 +111,7 @@ pub const RenderSystem = struct {
             q.transform.rotation - camera.rotation,
             camera.get_relative_position(q.transform.position),
             q.transform.height,
+            q.color,
         );
         self.discreete_render_texture.end();
 
@@ -117,7 +124,7 @@ pub const RenderSystem = struct {
             // passing in absolute 'rotation'
             // I think this is correct, it's world space rotation, it looks right!
             rl.setShaderValue(self.normal_shader, rl.getShaderLocation(self.normal_shader, "rotation"), &rotation, .float);
-            stack_draw(s.normals, rotation, position, q.transform.height);
+            stack_draw(s.normals, rotation, position, q.transform.height, .white);
             self.normal_shader.deactivate();
         }
         self.normal_render_texture.end();

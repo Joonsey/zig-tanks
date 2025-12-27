@@ -39,7 +39,7 @@ pub const ParticleSystem = struct {
                         for (0..@intFromFloat(max)) |i| {
                             const new_particle = ecs.create();
                             _ = ecs.transforms.add(new_particle, t.*);
-                            _ = ecs.particle.add(new_particle, .{});
+                            _ = ecs.particle.add(new_particle, .{ .color = .blue });
                             _ = ecs.collider.add(new_particle, .{ .shape = .{ .Rectangle = .init(2, 2) }, .mode = .Trigger });
                             _ = ecs.ssprite.add(new_particle, .PARTICLE);
                             // _ = ecs.light.add(new_particle, .{ .height = 2, .color = .white, .radius = 2 });
