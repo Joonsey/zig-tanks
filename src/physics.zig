@@ -3,7 +3,6 @@ const rl = @import("raylib");
 const ECS = @import("entity.zig").ECS;
 const _entity = @import("entity.zig");
 const Entity = _entity.Entity;
-const SparseSet = _entity.SparseSet;
 const RigidBody = _entity.RigidBody;
 const Transform = _entity.Transform;
 const Collider = _entity.Collider;
@@ -13,6 +12,8 @@ const Camera = @import("camera.zig").Camera;
 const consts = @import("consts.zig");
 const render_width = consts.render_width;
 const render_height = consts.render_height;
+
+const SparseSet = @import("helpers/sparseset.zig").SparseSet;
 
 const PhysicsRow = struct {
     entity: Entity,

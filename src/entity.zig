@@ -9,9 +9,17 @@ const render_width = consts.render_width;
 const render_height = consts.render_height;
 const MAX_ENTITY_COUNT = consts.MAX_ENTITY_COUNT;
 
+const SparseSet = @import("helpers/sparseset.zig").SparseSet;
+const BitFlag = @import("helpers/bitflag.zig").BitFlag;
+
+const FlagBackedInt = u32;
+pub const EntityBitFlag = BitFlag(enum(FlagBackedInt) {
+    NoImpulse = 1,
+});
+
 const MAX_DATAFILE_SIZE = 2048;
 
-pub const Entity = u32;
+pub const Entity = consts.Entity;
 pub const Transform = extern struct {
     position: rl.Vector2 = .{ .x = 0, .y = 0 },
     rotation: f32 = 0,
@@ -73,74 +81,6 @@ const Player = struct {
     network_id: u32 = 0,
 };
 
-pub fn SparseSet(comptime T: type) type {
-    return struct {
-        dense_entities: std.ArrayList(Entity),
-        dense: std.ArrayList(T),
-        sparse: []usize,
-
-        const invalid = std.math.maxInt(usize);
-
-        pub fn init(
-            allocator: std.mem.Allocator,
-            max_entities: usize,
-        ) @This() {
-            const sparse = allocator.alloc(usize, max_entities) catch unreachable;
-            @memset(sparse, invalid);
-
-            return .{
-                .dense_entities = std.ArrayList(Entity).initCapacity(allocator, max_entities) catch unreachable,
-                .dense = std.ArrayList(T).initCapacity(allocator, max_entities) catch unreachable,
-                .sparse = sparse,
-            };
-        }
-
-        pub fn add(self: *@This(), e: Entity, value: T) *T {
-            const idx = self.dense.items.len;
-            self.sparse[e] = idx;
-
-            self.dense_entities.appendAssumeCapacity(e);
-            self.dense.appendAssumeCapacity(value);
-
-            return &self.dense.items[idx];
-        }
-
-        pub fn remove(self: *@This(), e: Entity) void {
-            const idx = self.sparse[e];
-            if (idx == invalid) return;
-
-            const last = self.dense.items.len - 1;
-
-            if (idx != last) {
-                self.dense.items[idx] = self.dense.items[last];
-                const moved = self.dense_entities.items[last];
-                self.dense_entities.items[idx] = moved;
-                self.sparse[moved] = idx;
-            }
-
-            _ = self.dense.pop();
-            _ = self.dense_entities.pop();
-            self.sparse[e] = invalid;
-        }
-
-        pub fn has(self: *@This(), e: Entity) bool {
-            return self.sparse[e] != invalid;
-        }
-
-        pub fn get(self: *@This(), e: Entity) ?*T {
-            const idx = self.sparse[e];
-            if (idx == invalid) return null;
-            return &self.dense.items[idx];
-        }
-
-        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-            self.dense_entities.deinit(allocator);
-            self.dense.deinit(allocator);
-            allocator.free(self.sparse);
-        }
-    };
-}
-
 pub const Event = union(enum) {
     Collision: struct {
         e: Entity,
@@ -169,6 +109,7 @@ pub const ECS = struct {
     bullet: SparseSet(Bullet),
     player: SparseSet(Player),
     particle: SparseSet(Particle),
+    flags: SparseSet(EntityBitFlag),
 
     next: Entity = 0,
     free_entities: std.ArrayList(Entity),
@@ -191,6 +132,7 @@ pub const ECS = struct {
             .bullet = .init(allocator, MAX_ENTITY_COUNT),
             .player = .init(allocator, MAX_ENTITY_COUNT),
             .particle = .init(allocator, MAX_ENTITY_COUNT),
+            .flags = .init(allocator, MAX_ENTITY_COUNT),
 
             .free_entities = std.ArrayList(Entity).initCapacity(allocator, MAX_ENTITY_COUNT) catch unreachable,
             .allocator = allocator,
@@ -225,6 +167,7 @@ pub const ECS = struct {
         if (self.bullet.get(e)) |l| _ = self.bullet.add(ne, l.*);
         if (self.player.get(e)) |l| _ = self.player.add(ne, l.*);
         if (self.particle.get(e)) |l| _ = self.particle.add(ne, l.*);
+        if (self.flags.get(e)) |l| _ = self.flags.add(ne, l.*);
 
         return ne;
     }
@@ -241,6 +184,7 @@ pub const ECS = struct {
         self.bullet.remove(e);
         self.player.remove(e);
         self.particle.remove(e);
+        self.flags.remove(e);
     }
 
     pub fn update(self: *Self) void {
@@ -259,6 +203,7 @@ pub const ECS = struct {
         self.bullet.deinit(self.allocator);
         self.player.deinit(self.allocator);
         self.particle.deinit(self.allocator);
+        self.flags.deinit(self.allocator);
 
         self.free_entities.clearAndFree(self.allocator);
 
@@ -347,6 +292,8 @@ pub const ECS = struct {
                     },
                     // rigibody
                     5 => _ = self.rigidbody.add(e, try reader.takeStruct(RigidBody, .little)),
+                    // flags
+                    6 => _ = self.flags.add(e, EntityBitFlag.from_int(try reader.takeInt(FlagBackedInt, .little))),
                     else => std.log.warn("got unexpected component id {d}", .{component}),
                 }
                 component = try reader.takeInt(u8, .little);
@@ -405,6 +352,11 @@ pub const ECS = struct {
                 rb_filtered.velocity = .zero();
                 rb_filtered.impulse = .zero();
                 try writer.writeStruct(rb_filtered, .little);
+            }
+
+            if (self.flags.get(e)) |f| {
+                try writer.writeInt(u8, 6, .little);
+                try writer.writeInt(FlagBackedInt, f.bits, .little);
             }
 
             try writer.writeInt(u8, 0, .little);

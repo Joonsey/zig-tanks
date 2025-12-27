@@ -18,7 +18,7 @@ const Transform = _entity.Transform;
 const Particle = _entity.Particle;
 const LightSystem = @import("light.zig").LightSystem;
 
-const SparseSet = @import("entity.zig").SparseSet;
+const SparseSet = @import("helpers/sparseset.zig").SparseSet;
 
 pub const RenderRow = struct {
     entity: Entity,

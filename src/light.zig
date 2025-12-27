@@ -1,15 +1,18 @@
 const std = @import("std");
 const rl = @import("raylib");
-const ECS = @import("entity.zig").ECS;
-const Entity = @import("entity.zig").Entity;
-const SparseSet = @import("entity.zig").SparseSet;
-const Light = @import("entity.zig").Light;
-const Transform = @import("entity.zig").Transform;
+
+const _entity = @import("entity.zig");
+const ECS = _entity.ECS;
+const Entity = _entity.Entity;
+const Transform = _entity.Transform;
+const Light = _entity.Light;
 
 const Camera = @import("camera.zig").Camera;
 const consts = @import("consts.zig");
 const render_width = consts.render_width;
 const render_height = consts.render_height;
+
+const SparseSet = @import("helpers/sparseset.zig").SparseSet;
 
 const MAX_LIGHTS = 45;
 
