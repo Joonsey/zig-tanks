@@ -61,6 +61,7 @@ pub fn build(b: *std.Build) void {
                 // importing modules from different packages).
                 .{ .name = "raylib", .module = raylib },
                 .{ .name = "raygui", .module = raygui },
+                .{ .name = "network", .module = b.dependency("network", .{ .target = target, .optimize = optimize }).module("network") },
             },
         }),
     });
