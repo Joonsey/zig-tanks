@@ -184,6 +184,8 @@ pub const Assets = enum(u32) {
     LAMP,
     BULLET,
     PARTICLE,
+    TANK_BASE,
+    TURRET_BASE,
 };
 
 var assets: std.ArrayList(SSprite) = .{};
@@ -195,6 +197,8 @@ pub fn init(allocator: std.mem.Allocator) !void {
     try assets.append(allocator, try .init("lamp.png", allocator));
     try assets.append(allocator, try .init("bullet.png", allocator));
     try assets.append(allocator, try .init("particle.png", allocator));
+    try assets.append(allocator, try .init("tank_base.png", allocator));
+    try assets.append(allocator, try .init("turret_base.png", allocator));
 }
 
 pub fn free(allocator: std.mem.Allocator) void {
