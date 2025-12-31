@@ -44,6 +44,7 @@ pub const ParticleSystem = struct {
                             _ = ecs.ssprite.add(new_particle, .PARTICLE);
                             var flags = ecs.flags.add(new_particle, .empty());
                             flags.set(.NoImpulse);
+                            flags.set(.DontSaveToDisk);
                             // _ = ecs.light.add(new_particle, .{ .height = 2, .color = .white, .radius = 2 });
                             var rb = ecs.rigidbody.add(new_particle, .{});
 

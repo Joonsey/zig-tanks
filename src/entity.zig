@@ -15,6 +15,7 @@ const BitFlag = @import("helpers/bitflag.zig").BitFlag;
 const FlagBackedInt = u32;
 pub const EntityBitFlag = BitFlag(enum(FlagBackedInt) {
     NoImpulse = 1,
+    DontSaveToDisk = 2,
 });
 
 const MAX_DATAFILE_SIZE = 2048;
@@ -315,8 +316,7 @@ pub const ECS = struct {
 
         try writer.writeInt(u32, @intCast(entities.len), .little);
         for (entities) |e| {
-            if (self.bullet.get(e)) |_| continue;
-            if (self.particle.get(e)) |_| continue;
+            if (self.flags.get(e)) |f| if (f.has(.DontSaveToDisk)) continue;
 
             if (self.transforms.get(e)) |t| {
                 try writer.writeInt(u8, 1, .little);

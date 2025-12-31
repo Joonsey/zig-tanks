@@ -88,7 +88,7 @@ pub const BulletSystem = struct {
             const owner_radius = if (ecs.collider.get(owner)) |c| switch (c.shape) {
                 .Rectangle => |r| @max(r.x, r.y),
                 .Circle => |r| r,
-            } else 0;
+            } else 4;
 
             const bullet_radius = switch (new_bullet_collider.shape) {
                 .Rectangle => |r| @max(r.x, r.y),
@@ -100,12 +100,17 @@ pub const BulletSystem = struct {
                 .y = if (forward.y < 0.5 and forward.y > -0.5) 0 else if (forward.y > 0) 1 else -1,
             };
             // idk. this works though but looks messy asf
-            const margin = 1 + denormalized_forward.length() * 2;
+            // AHHHHHHHHHHH4Hhh
+            // TODO fix this shit
+            // refactor this whole method to respect or care about the more complex composition of a tank
+            const margin = 8 + denormalized_forward.length() * 2;
             new_bullet_transform.position = new_bullet_transform.position.add(forward.scale(owner_radius + bullet_radius + margin));
 
             _ = ecs.ssprite.add(new_bullet, .BULLET);
             _ = ecs.bullet.add(new_bullet, bullet);
             _ = ecs.light.add(new_bullet, .{ .color = .red, .height = 15, .radius = 50 });
+            var flags = ecs.flags.add(new_bullet, .empty());
+            flags.set(.DontSaveToDisk);
         }
     }
 

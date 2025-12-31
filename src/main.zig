@@ -14,6 +14,7 @@ const RenderSystem = @import("render.zig").RenderSystem;
 const PhysicsSystem = @import("physics.zig").PhysicsSystem;
 const BulletSystem = @import("bullet.zig").BulletSystem;
 const ParticleSystem = @import("particle.zig").ParticleSystem;
+const TurretSystem = @import("turret.zig").TurretSystem;
 
 const consts = @import("consts.zig");
 const render_width = consts.render_width;
@@ -31,6 +32,11 @@ fn draw_ui(ui: *EditorUI, ecs: *ECS, renders: RenderSystem) void {
     const width = 120;
     var i: f32 = 22;
     if (ui.selected_entity) |e| {
+        var buff: [64]u8 = undefined;
+
+        var text = std.fmt.bufPrintZ(&buff, "EntityId: {d}", .{e}) catch "";
+        _ = rg.label(.init(20, i, width, 20), text);
+        i += 22;
         // transform
         if (ecs.transforms.get(e)) |t| {
             _ = rg.label(.init(20, i, width, 20), "Transform");
@@ -48,8 +54,7 @@ fn draw_ui(ui: *EditorUI, ecs: *ECS, renders: RenderSystem) void {
         if (ecs.ssprite.get(e)) |s| {
             _ = rg.label(.init(20, i, width, 20), "Sprite");
             i += 22;
-            var buff: [64]u8 = undefined;
-            const text = std.fmt.bufPrintZ(&buff, "Asset: {}", .{s.*}) catch "";
+            text = std.fmt.bufPrintZ(&buff, "Asset: {}", .{s.*}) catch "";
             var sv: f32 = @floatFromInt(@intFromEnum(s.*));
             _ = rg.slider(.init(20, i, width, 20), "", text, &sv, 0, @typeInfo(assets.Assets).@"enum".fields.len - 1);
             s.* = @enumFromInt(@as(u32, @intFromFloat(sv)));
@@ -83,14 +88,12 @@ fn draw_ui(ui: *EditorUI, ecs: *ECS, renders: RenderSystem) void {
             i += 22;
             switch (c.shape) {
                 .Circle => |r| {
-                    var buff: [64]u8 = undefined;
-                    const text = std.fmt.bufPrintZ(&buff, "Radius: {d:.2}", .{r}) catch "";
+                    text = std.fmt.bufPrintZ(&buff, "Radius: {d:.2}", .{r}) catch "";
                     _ = rg.slider(.init(20, i, width, 20), "", text, &c.shape.Circle, 0, 255);
                     i += 22;
                 },
                 .Rectangle => |*r| {
-                    var buff: [64]u8 = undefined;
-                    var text = std.fmt.bufPrintZ(&buff, "X (radius): {d:.2}", .{r.x}) catch "";
+                    text = std.fmt.bufPrintZ(&buff, "X (radius): {d:.2}", .{r.x}) catch "";
                     _ = rg.slider(.init(20, i, width, 20), "", text, &r.x, 0, 32);
                     i += 22;
                     text = std.fmt.bufPrintZ(&buff, "X (radius): {d:.2}", .{r.y}) catch "";
@@ -110,8 +113,7 @@ fn draw_ui(ui: *EditorUI, ecs: *ECS, renders: RenderSystem) void {
             i += 22;
             if (rg.button(.init(20, i, width, 20), "Delete Rigidbody")) ecs.rigidbody.remove(e);
             i += 22;
-            var buff: [64]u8 = undefined;
-            var text = std.fmt.bufPrintZ(&buff, "damping: {d:.2}", .{rb.damping}) catch "";
+            text = std.fmt.bufPrintZ(&buff, "damping: {d:.2}", .{rb.damping}) catch "";
             _ = rg.slider(.init(20, i, width, 20), "", text, &rb.damping, 0, 1);
             i += 22;
             text = std.fmt.bufPrintZ(&buff, "Inv Mass: {d:.2}", .{rb.inv_mass}) catch "";
@@ -178,11 +180,15 @@ pub fn main() !void {
     var particles = ParticleSystem.init(allocator);
     defer particles.free(allocator);
 
+    var turrets = TurretSystem.init(allocator);
+    defer turrets.free(allocator);
+
     ecs.add_system(.{ .ctx = &renders, .update_fn = &RenderSystem.update });
     ecs.add_system(.{ .ctx = &lights, .update_fn = &LightSystem.update });
     ecs.add_system(.{ .ctx = &physics, .update_fn = &PhysicsSystem.update });
     ecs.add_system(.{ .ctx = &bullets, .update_fn = &BulletSystem.update });
     ecs.add_system(.{ .ctx = &particles, .update_fn = &ParticleSystem.update });
+    ecs.add_system(.{ .ctx = &turrets, .update_fn = &TurretSystem.update });
 
     ecs.add_event_listener(.{ .ctx = &bullets, .on_event_fn = &BulletSystem.on_event });
     ecs.add_event_listener(.{ .ctx = &physics, .on_event_fn = &PhysicsSystem.on_event });
@@ -201,6 +207,8 @@ pub fn main() !void {
             _ = ecs.rigidbody.add(entity, .{});
         }
     };
+
+    _ = turrets.create(&ecs, 0);
 
     rl.setTargetFPS(60);
     while (!rl.windowShouldClose()) {
@@ -253,6 +261,14 @@ pub fn main() !void {
                     camera.target(t.position);
                 }
             }
+        }
+
+        if (ecs.transforms.get(turrets.map.get(0).?)) |t| {
+            const mouse_position = rl.getMousePosition().divide(.init(4, 4));
+            const relative_mouse_position = camera.get_absolute_position(mouse_position);
+            const diff = relative_mouse_position.subtract(t.position);
+            const diff_n = diff.normalize();
+            t.rotation = std.math.atan2(diff_n.y, diff_n.x);
         }
 
         if (rl.isMouseButtonPressed(.left)) {
@@ -338,7 +354,7 @@ pub fn main() !void {
         rl.beginDrawing();
         rl.clearBackground(.blank);
 
-        if (rl.isKeyPressed(.o)) bullets.add(0, .{ .type = .Demo }, &ecs);
+        if (rl.isKeyPressed(.o)) bullets.add(turrets.map.get(0).?, .{ .type = .Demo }, &ecs);
 
         renders.draw_final_pass(&lights, debug_mode);
         // drawing debug information
