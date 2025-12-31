@@ -268,7 +268,12 @@ pub fn main() !void {
             const relative_mouse_position = camera.get_absolute_position(mouse_position);
             const diff = relative_mouse_position.subtract(t.position);
             const diff_n = diff.normalize();
-            t.rotation = std.math.atan2(diff_n.y, diff_n.x);
+            const new_rotation = std.math.atan2(diff_n.y, diff_n.x);
+            var delta = new_rotation - t.rotation;
+            // simple angle wrapping, might be better way to this
+            delta = std.math.atan2(std.math.sin(delta), std.math.cos(delta));
+            const speed = 4;
+            t.rotation += std.math.clamp(delta, -speed * dt, speed * dt);
         }
 
         if (rl.isMouseButtonPressed(.left)) {
