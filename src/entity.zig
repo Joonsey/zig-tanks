@@ -89,6 +89,10 @@ pub const Event = union(enum) {
         velocity: rl.Vector2,
         axis: enum { X, Y },
     },
+    Fire: struct {
+        owner: Entity,
+        bullet: Entity,
+    },
 };
 
 pub const ECS = struct {

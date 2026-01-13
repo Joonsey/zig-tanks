@@ -15,6 +15,8 @@ const PhysicsSystem = @import("physics.zig").PhysicsSystem;
 const BulletSystem = @import("bullet.zig").BulletSystem;
 const ParticleSystem = @import("particle.zig").ParticleSystem;
 const TurretSystem = @import("turret.zig").TurretSystem;
+const SyncSystem = @import("sync.zig").SyncSystem;
+const Server = @import("server.zig").Server;
 
 const consts = @import("consts.zig");
 const render_width = consts.render_width;
@@ -183,16 +185,29 @@ pub fn main() !void {
     var turrets = TurretSystem.init(allocator);
     defer turrets.free(allocator);
 
+    var syncs = SyncSystem.init(allocator, &turrets);
+    defer syncs.free(allocator);
+
     ecs.add_system(.{ .ctx = &renders, .update_fn = &RenderSystem.update });
     ecs.add_system(.{ .ctx = &lights, .update_fn = &LightSystem.update });
     ecs.add_system(.{ .ctx = &physics, .update_fn = &PhysicsSystem.update });
     ecs.add_system(.{ .ctx = &bullets, .update_fn = &BulletSystem.update });
     ecs.add_system(.{ .ctx = &particles, .update_fn = &ParticleSystem.update });
     ecs.add_system(.{ .ctx = &turrets, .update_fn = &TurretSystem.update });
+    ecs.add_system(.{ .ctx = &syncs, .update_fn = &SyncSystem.update });
 
     ecs.add_event_listener(.{ .ctx = &bullets, .on_event_fn = &BulletSystem.on_event });
     ecs.add_event_listener(.{ .ctx = &physics, .on_event_fn = &PhysicsSystem.on_event });
     ecs.add_event_listener(.{ .ctx = &particles, .on_event_fn = &ParticleSystem.on_event });
+    ecs.add_event_listener(.{ .ctx = &syncs, .on_event_fn = &SyncSystem.on_event });
+
+    var server: ?Server = null;
+    defer if (server) |*s| s.free(allocator);
+
+    const player_network_id = std.crypto.random.int(consts.NetworkId);
+    syncs.connect("127.0.0.1", consts.GAME_PORT, player_network_id);
+    syncs.start();
+    defer syncs.disconnect();
 
     try levels.init(allocator);
     defer levels.free(allocator);
@@ -219,6 +234,12 @@ pub fn main() !void {
         ecs.update();
 
         renders.draw();
+
+        if (rl.isKeyPressed(.l)) {
+            server = Server.init(allocator);
+            server.?.start();
+            syncs.connect("127.0.0.1", consts.GAME_PORT, player_network_id);
+        }
 
         if (rl.isKeyPressed(.n)) {
             debug_mode = @mod(1 + debug_mode, 4); // 4 is max debug modes

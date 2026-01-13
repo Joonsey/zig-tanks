@@ -67,6 +67,8 @@ pub const BulletSystem = struct {
                     }
                 }
             },
+            .Fire => {},
+            else => {},
         }
     }
 
@@ -111,6 +113,8 @@ pub const BulletSystem = struct {
             _ = ecs.light.add(new_bullet, .{ .color = .red, .height = 15, .radius = 50 });
             var flags = ecs.flags.add(new_bullet, .empty());
             flags.set(.DontSaveToDisk);
+
+            ecs.push_event(.{ .Fire = .{ .owner = owner, .bullet = new_bullet } });
         }
     }
 

@@ -6,3 +6,7 @@ pub const render_width = window_width / 4;
 
 pub const MAX_ENTITY_COUNT = 10000;
 pub const Entity = u32;
+pub const NetworkId = u32;
+
+pub const GAME_PORT = 8889;
+pub const MAX_PLAYERS = 4;

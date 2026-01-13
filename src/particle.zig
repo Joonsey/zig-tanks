@@ -80,6 +80,7 @@ pub const ParticleSystem = struct {
                     }
                 }
             },
+            else => {},
         }
     }
 

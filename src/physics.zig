@@ -57,6 +57,7 @@ pub const PhysicsSystem = struct {
                     rb.impulse = impulse;
                 }
             },
+            else => {},
         }
     }
 
